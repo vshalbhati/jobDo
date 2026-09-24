@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Easy Apply Autopilot - Settings</title>
+<link rel="stylesheet" href="options.css">
+</head>
+<body>
+<nav>
+  <h1>Easy Apply Autopilot</h1>
+  <a href="#resume">Resume</a>
+  <a href="#profile">Profile</a>
+  <a href="#search">Search</a>
+  <a href="#matching">Matching</a>
+  <a href="#safety">Safety</a>
+  <a href="#portal">Company portals</a>
+  <a href="#answers">Answers</a>
+  <a href="#sync">Account</a>
+  <a href="#history">History</a>
+  <a href="../dashboard/dashboard.html" target="_blank" class="nav-cta">Open dashboard &rarr;</a>
+</nav>
+
+<main>
+  <p class="notice">
+    Automated applying is against LinkedIn's User Agreement and accounts do get
+    restricted for it. Keep the daily cap low, keep the delays long, and read
+    the activity log before you trust a run.
+  </p>
+
+  <section id="resume">
+    <h2>1. Resume</h2>
+    <p class="hint">PDF, DOCX or TXT. The file stays on this machine; it is only re-uploaded to LinkedIn if you pick the upload strategy below.</p>
+    <input type="file" id="resumeFile" accept=".pdf,.docx,.txt">
+    <div id="resumeStatus" class="status-line"></div>
+    <div class="row">
+      <label><input type="radio" name="resumeStrategy" value="saved"> Use a resume already saved on LinkedIn <em>safer, fewer upload steps</em></label>
+      <label><input type="radio" name="resumeStrategy" value="upload"> Upload this file on every application</label>
+    </div>
+    <details><summary>Extracted text</summary><pre id="resumeText"></pre></details>
+  </section>
+
+  <section id="profile">
+    <h2>2. Profile</h2>
+    <p class="hint">Filled in from your resume. Correct anything it got wrong - these values are typed into application forms.</p>
+    <div class="grid">
+      <label>First name<input id="p-firstName"></label>
+      <label>Last name<input id="p-lastName"></label>
+      <label>Email<input id="p-email" type="email"></label>
+      <label>Phone<input id="p-phone"></label>
+      <label>City<input id="p-city"></label>
+      <label>Country<input id="p-country"></label>
+      <label>LinkedIn URL<input id="p-linkedin"></label>
+      <label>GitHub<input id="p-github"></label>
+      <label>Website / portfolio<input id="p-website"></label>
+      <label>Total years of experience
+        <span class="with-btn">
+          <input id="p-defaultYears" type="number" min="0" max="50">
+          <button id="applyYears" class="ghost tight" type="button" title="Set every skill below to this number">Apply to skills</button>
+        </span>
+      </label>
+      <label>Highest education<input id="p-education"></label>
+      <label>Expected salary<input id="p-expectedSalary"></label>
+      <label>Current salary<input id="p-currentSalary"></label>
+      <label>Notice period (days)<input id="p-noticePeriodDays" type="number" min="0"></label>
+      <label>Current job title<input id="p-currentTitle"></label>
+      <label>Current employer<input id="p-currentCompany"></label>
+    </div>
+    <h3>Job titles you target</h3>
+    <textarea id="p-titles" rows="3" placeholder="One per line"></textarea>
+    <h3>Skills and years</h3>
+    <p class="hint">Used to score jobs and to answer "how many years of experience with X".</p>
+    <div id="skills" class="chips"></div>
+    <div class="row add">
+      <input id="newSkill" placeholder="skill">
+      <input id="newSkillYears" type="number" min="0" max="50" value="3" style="width:80px">
+      <button id="addSkill" class="ghost">Add</button>
+    </div>
+  </section>
+
+  <section id="search">
+    <h2>3. Search</h2>
+
+    <h3>Job boards</h3>
+    <p class="hint">
+      Each board is worked through in turn, with its own per-run budget. The
+      keywords and filters below apply to all of them.
+    </p>
+    <div id="boards"></div>
+    <div class="status-line" id="boardsNote"></div>
+
+    <div class="grid">
+      <label>Keywords<input id="s-keywords" placeholder="blank = built from your resume"></label>
+      <label>Location<input id="s-location" placeholder="e.g. India, Remote, Bengaluru"></label>
+      <label>Extra query terms<input id="s-extraQuery" placeholder="optional, appended to keywords"></label>
+      <label>Date posted
+        <select id="s-datePosted">
+          <option value="r86400">Past 24 hours</option>
+          <option value="r604800">Past week</option>
+          <option value="r2592000">Past month</option>
+          <option value="">Any time</option>
+        </select>
+      </label>
+      <label>Sort by
+        <select id="s-sortBy"><option value="DD">Most recent</option><option value="R">Most relevant</option></select>
+      </label>
+      <label>geoId (optional)<input id="s-geoId" placeholder="from a LinkedIn search URL"></label>
+    </div>
+    <h3>Workplace</h3>
+    <div class="row" id="s-remote">
+      <label><input type="checkbox" value="1"> On-site</label>
+      <label><input type="checkbox" value="2"> Remote</label>
+      <label><input type="checkbox" value="3"> Hybrid</label>
+    </div>
+    <h3>Experience level</h3>
+    <div class="row" id="s-experience">
+      <label><input type="checkbox" value="1"> Internship</label>
+      <label><input type="checkbox" value="2"> Entry</label>
+      <label><input type="checkbox" value="3"> Associate</label>
+      <label><input type="checkbox" value="4"> Mid-Senior</label>
+      <label><input type="checkbox" value="5"> Director</label>
+      <label><input type="checkbox" value="6"> Executive</label>
+    </div>
+    <h3>Search URLs</h3>
+    <p class="hint">Paste any of these into a tab to see exactly the jobs it will work through.</p>
+    <div id="urlPreview" class="url-previews"></div>
+  </section>
+
+  <section id="matching">
+    <h2>4. Matching</h2>
+    <label class="inline">Minimum match score <input id="m-minScore" type="range" min="0" max="100"> <b id="minScoreVal"></b></label>
+    <p class="hint">Scored from title overlap and how many of your skills appear in the description. Start around 35 and watch the log.</p>
+    <div class="grid">
+      <label>Title must contain one of<textarea id="m-titleInclude" rows="2" placeholder="one per line, blank = any"></textarea></label>
+      <label>Skip titles containing<textarea id="m-titleExclude" rows="2"></textarea></label>
+      <label>Skip these companies<textarea id="m-companyBlocklist" rows="2"></textarea></label>
+      <label>Skip descriptions containing<textarea id="m-descriptionExclude" rows="2" placeholder="e.g. security clearance"></textarea></label>
+    </div>
+  </section>
+
+  <section id="safety">
+    <h2>5. Safety and pacing</h2>
+    <div class="row">
+      <label><input type="checkbox" id="f-dryRun"> Dry run <em>fill everything, never submit</em></label>
+      <label><input type="checkbox" id="f-reviewBeforeSubmit"> Ask me before each submit</label>
+      <label><input type="checkbox" id="f-stopOnUnknownQuestion"> Abandon an application that asks something I have no answer for</label>
+      <label><input type="checkbox" id="f-skipIfDescriptionMissing"> Skip jobs whose description did not load</label>
+    </div>
+    <div class="grid">
+      <label>Max applications per run<input id="f-maxPerRun" type="number" min="1"></label>
+      <label>Max applications per day<input id="f-maxPerDay" type="number" min="1"></label>
+      <label>Min delay between applications (s)<input id="f-minDelay" type="number" min="3"></label>
+      <label>Max delay between applications (s)<input id="f-maxDelay" type="number" min="5"></label>
+      <label>Long break every N applications<input id="f-longBreakEvery" type="number" min="0"></label>
+      <label>Long break length (min)<input id="f-longBreakMinutes" type="number" min="1"></label>
+      <label>Min pause between form fields (ms)<input id="f-actionMin" type="number" min="100"></label>
+      <label>Max pause between form fields (ms)<input id="f-actionMax" type="number" min="200"></label>
+    </div>
+  </section>
+
+  <section id="portal">
+    <h2>6. Company portals (mode 2)</h2>
+    <p class="hint">
+      Jobs whose Apply button sends you to the employer's own site. Turning this
+      on also drops the Easy Apply filter from the search, so both kinds of job
+      come back. These applications are slower and less predictable than Easy
+      Apply, which is why they get their own, smaller budget.
+    </p>
+    <div class="row">
+      <label><input type="checkbox" id="pt-enabled"> Apply on company sites too</label>
+      <label><input type="checkbox" id="pt-closeTab"> Close the site's tab after a confirmed submit</label>
+    </div>
+    <div class="grid">
+      <label>Max portal applications per run<input id="pt-maxPerRun" type="number" min="1"></label>
+    </div>
+
+    <h3>Recognised systems</h3>
+    <p class="hint">
+      <b>Auto</b> means a public one-page form it can fill and submit.
+      <b>Assisted</b> means the site wants an account or a multi-step wizard: it
+      fills in what it can, leaves the tab open and moves on.
+    </p>
+    <div id="atsList" class="chips"></div>
+
+    <h3>Sites it does not recognise</h3>
+    <div class="row">
+      <label><input type="checkbox" id="pt-submitUnknown"> Submit on unrecognised career sites <em>otherwise it fills the form and leaves it to you</em></label>
+    </div>
+    <div class="status-line" id="permStatus"></div>
+    <button id="grantSites" class="ghost" type="button">Allow access to other career sites</button>
+    <button id="revokeSites" class="ghost hidden" type="button">Remove that access</button>
+
+    <h3>Cover letter</h3>
+    <p class="hint">Used when a form asks for one. Placeholders: <code>{{title}}</code> <code>{{company}}</code> <code>{{name}}</code> <code>{{years}}</code> <code>{{skills}}</code>. Leave blank and any application that requires a cover letter is handed to you instead.</p>
+    <textarea id="pt-coverLetter" rows="6" placeholder="Dear {{company}} team,&#10;&#10;I am applying for the {{title}} role..."></textarea>
+  </section>
+
+  <section id="answers">
+    <h2>7. Application answers</h2>
+    <p class="hint">Each row is a regular expression matched against the question label, top to bottom. The first match wins. Leave an answer blank to fall back to your profile.</p>
+    <div id="unknownBox" class="unknown hidden">
+      <h3>Questions that stopped a run</h3>
+      <ul id="unknownList"></ul>
+    </div>
+    <table id="rulesTable">
+      <thead><tr><th>On</th><th>Question matches (regex)</th><th>Answer</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="row add">
+      <input id="newPattern" placeholder="pattern, e.g. willing to work weekends" style="flex:2">
+      <input id="newAnswer" placeholder="answer" style="flex:1">
+      <button id="addRule" class="ghost">Add rule</button>
+    </div>
+    <button id="resetRules" class="ghost small">Restore built-in rules</button>
+  </section>
+
+  <section id="sync">
+    <h2>8. Account &amp; sync <span class="optional">optional</span></h2>
+    <p class="hint">
+      Everything works without this. Connecting to your own server copies each
+      application and your resume up as they happen, so the history survives an
+      uninstall and can be opened from any browser. Run the server from the
+      <code>server/</code> folder in this project.
+    </p>
+
+    <div id="syncOff">
+      <div class="grid">
+        <label>API address<input id="sy-url" placeholder="http://localhost:8787"></label>
+        <label>Web dashboard address<input id="sy-webUrl" placeholder="http://localhost:4173"></label>
+        <label>Email<input id="sy-email" type="email" autocomplete="username"></label>
+        <label>Password<input id="sy-password" type="password" autocomplete="current-password"></label>
+      </div>
+      <div class="row add">
+        <button id="sy-login" class="ghost" type="button">Connect</button>
+        <button id="sy-register" class="ghost" type="button">Create account</button>
+      </div>
+    </div>
+
+    <div id="syncOn" class="hidden">
+      <div class="status-line ok" id="sy-who"></div>
+      <div class="row">
+        <label><input type="checkbox" id="sy-auto"> Upload each application as it happens</label>
+      </div>
+      <div class="row add">
+        <button id="sy-pushAll" class="ghost" type="button">Sync everything now</button>
+        <button id="sy-pushResume" class="ghost" type="button">Upload resume to server</button>
+        <button id="sy-open" class="ghost" type="button">Open web dashboard</button>
+        <button id="sy-logout" class="ghost danger" type="button">Disconnect</button>
+      </div>
+    </div>
+
+    <div class="status-line" id="sy-status"></div>
+  </section>
+
+  <section id="history">
+    <h2>9. History</h2>
+    <div class="row">
+      <button id="exportCsv" class="ghost">Export CSV</button>
+      <button id="clearHist" class="ghost danger">Clear history</button>
+      <span class="hint" id="histCount"></span>
+    </div>
+    <p class="hint">Jobs listed here are never applied to twice.</p>
+    <table id="histTable">
+      <thead><tr><th>When</th><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+
+<div class="savebar">
+  <span id="saveMsg"></span>
+  <button id="save" class="primary">Save changes</button>
+</div>
+
+<script type="module" src="options.js"></script>
+</body>
+</html>

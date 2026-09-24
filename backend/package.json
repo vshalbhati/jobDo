@@ -1,0 +1,20 @@
+{
+  "name": "easy-apply-backend",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "API for the LinkedIn Easy Apply Autopilot: Supabase-backed accounts, application history and resume storage.",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "test": "node test/api.test.js",
+    "check:supabase": "node --env-file-if-exists=.env scripts/check-supabase.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "express": "^4.19.2"
+  }
+}

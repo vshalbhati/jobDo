@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Application Dashboard</title>
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body class="viz-root">
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo"></span>
+    <h1>Application Dashboard</h1>
+  </div>
+  <div class="live" id="live">
+    <span class="pill" id="livePill">idle</span>
+    <span class="live-text" id="liveText"></span>
+  </div>
+  <div class="topbar-actions">
+    <span id="who" class="who hidden"></span>
+    <button id="theme" class="icon-btn" type="button" title="Switch light / dark">◐</button>
+    <button id="openOptions" class="ghost" type="button">Settings</button>
+    <button id="signout" class="ghost hidden" type="button">Sign out</button>
+    <button id="exportCsv" class="ghost" type="button">Export CSV</button>
+  </div>
+</header>
+
+<main>
+  <!-- filters sit in one row above the charts and drive everything below -->
+  <div class="filters" role="group" aria-label="Filters">
+    <div class="seg" id="rangeSeg" role="tablist" aria-label="Date range">
+      <button role="tab" data-days="7">7 days</button>
+      <button role="tab" data-days="30" aria-selected="true">30 days</button>
+      <button role="tab" data-days="90">90 days</button>
+      <button role="tab" data-days="0">All time</button>
+    </div>
+    <div class="seg" id="siteSeg" role="tablist" aria-label="Job board">
+      <button role="tab" data-site="all" aria-selected="true">All boards</button>
+      <button role="tab" data-site="linkedin">LinkedIn</button>
+      <button role="tab" data-site="naukri">Naukri</button>
+      <button role="tab" data-site="indeed">Indeed</button>
+    </div>
+    <div class="seg" id="sourceSeg" role="tablist" aria-label="Application route">
+      <button role="tab" data-source="all" aria-selected="true">All routes</button>
+      <button role="tab" data-source="easy">Easy Apply</button>
+      <button role="tab" data-source="portal">Company portal</button>
+    </div>
+    <span class="filter-note" id="filterNote"></span>
+  </div>
+
+  <section class="headline">
+    <div class="hero">
+      <div class="hero-label">Applications submitted</div>
+      <div class="hero-value" id="heroValue">0</div>
+      <div class="hero-sub" id="heroSub"></div>
+    </div>
+    <div class="kpis">
+      <div class="tile"><div class="tile-label">Today</div><div class="tile-value" id="kToday">0</div><div class="tile-foot" id="kTodayFoot"></div></div>
+      <div class="tile"><div class="tile-label">Last 7 days</div><div class="tile-value" id="kWeek">0</div><div class="tile-foot" id="kWeekFoot"></div></div>
+      <div class="tile"><div class="tile-label">Submit rate</div><div class="tile-value" id="kRate">0%</div><div class="tile-foot" id="kRateFoot"></div></div>
+      <div class="tile"><div class="tile-label">Companies reached</div><div class="tile-value" id="kCompanies">0</div><div class="tile-foot" id="kCompaniesFoot"></div></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article class="card wide">
+      <h2>Applications submitted per day</h2>
+      <p class="card-sub" id="trendSub"></p>
+      <div class="viz" id="chartTrend"></div>
+    </article>
+
+    <article class="card">
+      <h2>What happened to each attempt</h2>
+      <p class="card-sub">Every job the run opened, by outcome.</p>
+      <div class="viz" id="chartOutcome"></div>
+    </article>
+
+    <article class="card">
+      <h2>Route taken</h2>
+      <p class="card-sub">LinkedIn's own form versus the employer's site.</p>
+      <div class="viz" id="chartRoute"></div>
+    </article>
+
+    <article class="card">
+      <h2>Companies applied to most</h2>
+      <p class="card-sub">Top 10 by number of attempts.</p>
+      <div class="viz" id="chartCompanies"></div>
+    </article>
+
+    <article class="card">
+      <h2>Match score of the jobs it picked</h2>
+      <p class="card-sub">How close to your resume the matched jobs scored.</p>
+      <div class="viz" id="chartScores"></div>
+    </article>
+
+    <article class="card wide">
+      <h2>When it has been applying</h2>
+      <p class="card-sub">Each square is a day over the last 18 weeks.</p>
+      <div class="viz" id="chartCalendar"></div>
+    </article>
+  </section>
+
+  <section class="card table-card">
+    <div class="table-head">
+      <h2>Every application</h2>
+      <div class="table-tools">
+        <input id="search" type="search" placeholder="Search job or company">
+        <select id="statusFilter">
+          <option value="">All outcomes</option>
+          <option value="applied">Submitted</option>
+          <option value="needs_manual">Handed to you</option>
+          <option value="dry_run">Dry run</option>
+          <option value="skipped">Skipped</option>
+          <option value="failed">Failed</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table id="histTable">
+        <thead>
+          <tr>
+            <th data-sort="at" class="sortable sorted-desc">When</th>
+            <th data-sort="title" class="sortable">Job</th>
+            <th data-sort="company" class="sortable">Company</th>
+            <th data-sort="site" class="sortable">Board</th>
+            <th data-sort="score" class="sortable num">Score</th>
+            <th data-sort="status" class="sortable">Outcome</th>
+            <th>Detail</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="table-foot">
+      <span id="tableCount"></span>
+      <div class="pager">
+        <button id="prevPage" class="ghost" type="button">Previous</button>
+        <span id="pageLabel"></span>
+        <button id="nextPage" class="ghost" type="button">Next</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="../config.js"></script>
+<script type="module" src="dashboard.js"></script>
+</body>
+</html>

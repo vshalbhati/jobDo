@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Easy Apply</title>
+<link rel="stylesheet" href="login.css">
+</head>
+<body>
+<main class="shell">
+  <div class="card">
+    <div class="brand"><span class="logo"></span><span>Easy Apply</span></div>
+    <h1 id="heading">Sign in</h1>
+    <p class="sub" id="sub">Your application history and resumes, wherever you are.</p>
+
+    <form id="form" novalidate>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required>
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <p class="hint" id="pwHint">At least 10 characters.</p>
+      <p class="forgot-row"><button id="forgot" type="button" class="link">Forgot your password?</button></p>
+
+      <p id="error" class="error" role="alert" hidden></p>
+      <p class="resend-row"><button id="resend" type="button" class="link" hidden>Resend the confirmation email</button></p>
+      <button id="submit" type="submit" class="primary">Sign in</button>
+    </form>
+
+    <p class="swap">
+      <span id="swapText">No account yet?</span>
+      <button id="swap" type="button" class="link">Create one</button>
+    </p>
+  </div>
+  <p class="foot">Runs on your own server. Nothing is shared with anyone else.</p>
+</main>
+<script src="config.js"></script>
+<script src="login.js"></script>
+</body>
+</html>

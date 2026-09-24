@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Easy Apply Autopilot</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>Easy Apply Autopilot</h1>
+  </header>
+
+  <div id="warning" class="warn hidden"></div>
+
+  <section class="status">
+    <div class="phase" id="phase">idle</div>
+    <div class="job" id="job"></div>
+    <div class="counts">
+      <div><b id="c-applied">0</b><span>applied</span></div>
+      <div><b id="c-skipped">0</b><span>skipped</span></div>
+      <div><b id="c-failed">0</b><span>failed</span></div>
+      <div><b id="c-seen">0</b><span>seen</span></div>
+    </div>
+    <div class="today" id="today"></div>
+  </section>
+
+  <section class="controls">
+    <label class="switch">
+      <input type="checkbox" id="dryRun">
+      <span>Dry run <em>walk the flow, never submit</em></span>
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="review">
+      <span>Ask me before each submit</span>
+    </label>
+    <button id="start" class="primary">Start applying</button>
+    <button id="stop" class="danger hidden">Stop</button>
+  </section>
+
+  <section class="log">
+    <div class="log-head">
+      <span>Activity</span>
+      <button id="clearLog" class="link">clear</button>
+    </div>
+    <ul id="logList"></ul>
+  </section>
+
+  <footer>
+    <button id="dashboard" class="link">Dashboard</button>
+    <button id="options" class="link">Settings</button>
+    <span id="resumeName"></span>
+  </footer>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

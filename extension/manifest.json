@@ -1,0 +1,121 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Easy Apply Autopilot",
+  "version": "0.1.0",
+  "description": "Reads your resume, finds matching jobs on LinkedIn, Naukri and Indeed, and applies to them one at a time with human-like pacing and safety caps.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://www.naukri.com/*",
+    "https://*.indeed.com/*",
+    "https://*.greenhouse.io/*",
+    "https://*.lever.co/*",
+    "https://*.ashbyhq.com/*",
+    "https://*.workable.com/*",
+    "https://*.smartrecruiters.com/*",
+    "https://*.recruitee.com/*",
+    "https://*.teamtailor.com/*",
+    "https://*.bamboohr.com/*",
+    "https://*.applytojob.com/*",
+    "https://*.breezy.hr/*",
+    "https://*.personio.de/*",
+    "https://*.personio.com/*",
+    "https://*.rippling.com/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.icims.com/*",
+    "https://*.taleo.net/*",
+    "https://*.successfactors.com/*",
+    "https://*.brassring.com/*",
+    "https://*.avature.net/*",
+    "https://*.zohorecruit.com/*",
+    "https://*.eightfold.ai/*",
+    "https://smartapply.indeed.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Easy Apply Autopilot",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "src/options/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://www.naukri.com/*",
+        "https://*.indeed.com/*"
+      ],
+      "js": [
+        "src/content/selectors.js",
+        "src/content/dom.js",
+        "src/content/answer-engine.js",
+        "src/content/scrape.js",
+        "src/content/easy-apply.js",
+        "src/content/sites/registry.js",
+        "src/content/sites/linkedin.js",
+        "src/content/sites/naukri.js",
+        "src/content/sites/indeed.js",
+        "src/content/main.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.workable.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.recruitee.com/*",
+        "https://*.teamtailor.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.applytojob.com/*",
+        "https://*.breezy.hr/*",
+        "https://*.personio.de/*",
+        "https://*.personio.com/*",
+        "https://*.rippling.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.icims.com/*",
+        "https://*.taleo.net/*",
+        "https://*.successfactors.com/*",
+        "https://*.brassring.com/*",
+        "https://*.avature.net/*",
+        "https://*.zohorecruit.com/*",
+        "https://*.eightfold.ai/*",
+        "https://smartapply.indeed.com/*"
+      ],
+      "js": [
+        "src/content/dom.js",
+        "src/content/answer-engine.js",
+        "src/content/portal/portal-fill.js",
+        "src/content/portal/portal-main.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "linkedin-easy-apply",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "LinkedIn Easy Apply Autopilot: Chrome extension, web dashboard and Supabase-backed API.",
+  "scripts": {
+    "sync:dashboard": "node scripts/sync-dashboard.mjs",
+    "check:dashboard": "node scripts/sync-dashboard.mjs --check",
+    "test": "cd backend && npm test",
+    "dev:api": "cd backend && npm run dev",
+    "dev:web": "cd frontend && npm run dev"
+  }
+}

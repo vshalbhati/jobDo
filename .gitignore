@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+*.log
+pass.txt
+.claude/
+.vercel
+.firebase/
+
+# local data from earlier SQLite-backed versions
+*.db
+*.db-wal
+*.db-shm
