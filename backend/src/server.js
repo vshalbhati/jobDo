@@ -64,7 +64,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(config.port, config.host, () => {
     console.log('Easy Apply API on http://' + config.host + ':' + config.port);
     console.log('  providers     ' + config.providers);
@@ -75,3 +75,5 @@ if (process.env.NODE_ENV !== 'test') {
     }
   });
 }
+
+export default app;
