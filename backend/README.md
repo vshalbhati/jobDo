@@ -81,6 +81,12 @@ There is no database to provision: Supabase is the database.
 | GET | `/api/resumes/:id/file` | The original file |
 | GET | `/api/resumes/current/profile` | The parsed profile |
 | DELETE | `/api/resumes/:id` | |
+| GET | `/api/config` | Every setting, as `{ config: { sites, search, match, rank, schedule, safety, portal, answers, resume }, unknownQuestions }`. `match.minScore` is the ranking threshold |
+| PATCH | `/api/config` | `{ config: { section: { field: value } } }`. Replaces only the named fields of the named sections, so the extension can flip one switch without overwriting the rest |
+| POST | `/api/unknown-questions` | `{ questions: [...] }` from the extension: questions a run could not answer. Deduplicated by label, last 60 kept |
+| DELETE | `/api/unknown-questions` | `?label=` dismisses one; no label dismisses all |
+| GET | `/api/resumes/current` | What the extension runs on: profile, text and the file's `sha256` (it downloads the file again only when that changes) |
+| PUT | `/api/resumes/current/profile` | `{ profile }`, saved by the website's Settings page |
 | GET | `/api/settings` | `{ minScore }`, the ranking threshold (60 until changed) |
 | PUT | `/api/settings` | `{ minScore }`, a whole number 0-100 |
 | POST | `/api/rank` | `{ jobs: [{id, title, company, location, description}], profile?, resumeText? }`, at most 50 jobs. Scores them with the ranker against the stored resume (or the one sent) and the account's threshold |

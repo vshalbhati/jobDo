@@ -1,23 +1,4 @@
-import { STORAGE_KEY, HISTORY_KEY, LOG_KEY, RUN_KEY, defaultConfig } from './defaults.js';
-
-// Maps whose keys the user can delete must be overwritten wholesale; merging
-// them would resurrect every skill removed on the Options page.
-const REPLACE_WHOLE = new Set(['profile.skills']);
-
-// Deep-merge stored config over the defaults so a release that adds a field
-// doesn't break an existing install. Arrays are replaced, not merged.
-function merge(base, over, path = '') {
-  if (over === undefined || over === null) return base;
-  if (Array.isArray(base) || Array.isArray(over)) return over;
-  if (typeof base !== 'object' || typeof over !== 'object') return over;
-  if (REPLACE_WHOLE.has(path)) return over;
-  const out = { ...base };
-  for (const [k, v] of Object.entries(over)) {
-    const p = path ? path + '.' + k : k;
-    out[k] = (k in base) ? merge(base[k], v, p) : v;
-  }
-  return out;
-}
+import { STORAGE_KEY, HISTORY_KEY, LOG_KEY, RUN_KEY, defaultConfig, mergeConfig as merge } from './defaults.js';
 
 export async function getConfig() {
   const raw = await chrome.storage.local.get(STORAGE_KEY);

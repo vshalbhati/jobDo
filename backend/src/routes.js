@@ -243,8 +243,22 @@ api.get('/resumes/current/profile', requireAuth, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// The extension sends the profile again whenever it is edited in Settings,
-// so the web dashboard shows what the ranker is actually comparing against.
+// Everything the extension needs to run: the profile it types into forms, the
+// text the ranker reads, and the file's hash so it only downloads the file
+// again (from /resumes/:id/file) when it has changed.
+api.get('/resumes/current', requireAuth, async (req, res, next) => {
+  try {
+    const row = await req.repo.resumes.current();
+    if (!row) return res.status(404).json({ error: 'No resume uploaded yet.' });
+    res.json({
+      id: row.id, filename: row.filename, mime: row.mime, size: row.size, sha256: row.sha256,
+      uploadedAt: row.uploaded_at, profile: row.profile || null, text: row.text_content || ''
+    });
+  } catch (e) { next(e); }
+});
+
+// The web app saves the profile here whenever it is edited, so the extension
+// and the dashboard see exactly what the ranker compares jobs against.
 api.put('/resumes/current/profile', requireAuth, async (req, res, next) => {
   try {
     const profile = req.body.profile;
@@ -270,7 +284,8 @@ api.delete('/resumes/:id', requireAuth, async (req, res, next) => {
 // Per-account settings, shared by the extension and the web dashboard.
 api.get('/settings', requireAuth, async (req, res, next) => {
   try {
-    res.json(await req.repo.settings.get());
+    const { minScore, updatedAt } = await req.repo.settings.get();
+    res.json({ minScore, updatedAt });
   } catch (e) { next(e); }
 });
 
@@ -287,7 +302,103 @@ api.put('/settings', requireAuth, async (req, res, next) => {
       patch.minScore = n;
     }
     if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update.' });
-    res.json(await req.repo.settings.update(patch));
+    const { minScore, updatedAt } = await req.repo.settings.update(patch);
+    res.json({ minScore, updatedAt });
+  } catch (e) { next(e); }
+});
+
+// -------------------------------------------------------------------- config
+
+// Every setting the web app edits and the extension runs on, as one document
+// per account. A PATCH replaces only the fields it names within the sections
+// it names, so the extension can flip one switch (dry run) without
+// overwriting what the web app saved a minute earlier.
+const CONFIG_SECTIONS = new Set(['sites', 'search', 'match', 'rank', 'schedule', 'safety', 'portal', 'answers', 'resume']);
+const MAX_CONFIG_BYTES = 256 * 1024;
+
+// The threshold has its own column (the ranker reads it), but to the clients
+// it is simply match.minScore.
+const configView = (s) => ({
+  config: { ...s.config, match: { ...(s.config.match || {}), minScore: s.minScore } },
+  unknownQuestions: s.unknownQuestions,
+  updatedAt: s.updatedAt
+});
+
+api.get('/config', requireAuth, async (req, res, next) => {
+  try {
+    res.json(configView(await req.repo.settings.get()));
+  } catch (e) { next(e); }
+});
+
+api.patch('/config', requireAuth, async (req, res, next) => {
+  try {
+    const patch = req.body.config;
+    if (!isPlainObject(patch)) return res.status(400).json({ error: 'Expected { config: {...} }.' });
+
+    const current = await req.repo.settings.get();
+    const config = { ...current.config };
+    let minScore;
+    for (const [section, value] of Object.entries(patch)) {
+      if (!CONFIG_SECTIONS.has(section)) {
+        return res.status(400).json({ error: 'Unknown settings section: ' + section });
+      }
+      if (!isPlainObject(value)) return res.status(400).json({ error: section + ' must be an object.' });
+      const merged = { ...(isPlainObject(config[section]) ? config[section] : {}), ...value };
+      if (section === 'match' && 'minScore' in value) minScore = value.minScore;
+      delete merged.minScore;          // lives in its own column
+      delete merged.unknownQuestions;  // has its own endpoint
+      delete merged.lastRunDay;        // per-browser state, never shared
+      config[section] = merged;
+    }
+    if (JSON.stringify(config).length > MAX_CONFIG_BYTES) {
+      return res.status(413).json({ error: 'Those settings are too large.' });
+    }
+
+    const update = { config };
+    if (minScore !== undefined) {
+      const n = typeof minScore === 'number' ? minScore : NaN;
+      if (!Number.isInteger(n) || n < 0 || n > 100) {
+        return res.status(400).json({ error: 'match.minScore must be a whole number from 0 to 100.' });
+      }
+      update.minScore = n;
+    }
+    res.json(configView(await req.repo.settings.update(update)));
+  } catch (e) { next(e); }
+});
+
+// Questions a run could not answer. The extension reports them; the web app
+// shows them so they can be turned into answer rules, and dismisses them.
+const MAX_UNKNOWN = 60;
+
+api.post('/unknown-questions', requireAuth, async (req, res, next) => {
+  try {
+    const incoming = Array.isArray(req.body.questions) ? req.body.questions : null;
+    if (!incoming || incoming.length > 20) return res.status(400).json({ error: 'Expected { questions: [...] }, at most 20.' });
+    const current = await req.repo.settings.get();
+    const list = current.unknownQuestions.slice();
+    for (const q of incoming) {
+      const label = clip(q && q.label, 500).trim();
+      if (!label || list.some((x) => x.label === label)) continue;
+      list.push({
+        label,
+        kind: clip(q.kind, 40),
+        options: Array.isArray(q.options) ? q.options.slice(0, 30).map((o) => clip(o, 200)) : [],
+        job: clip(q.job, 300),
+        at: Number(q.at) || Date.now()
+      });
+    }
+    const saved = await req.repo.settings.update({ unknownQuestions: list.slice(-MAX_UNKNOWN) });
+    res.json({ unknownQuestions: saved.unknownQuestions });
+  } catch (e) { next(e); }
+});
+
+api.delete('/unknown-questions', requireAuth, async (req, res, next) => {
+  try {
+    const label = String(req.query.label || '');
+    const current = await req.repo.settings.get();
+    const list = label ? current.unknownQuestions.filter((q) => q.label !== label) : [];
+    const saved = await req.repo.settings.update({ unknownQuestions: list });
+    res.json({ unknownQuestions: saved.unknownQuestions });
   } catch (e) { next(e); }
 });
 

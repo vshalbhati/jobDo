@@ -18,23 +18,28 @@ trust it. The account risk is yours.
 
 | | | |
 |---|---|---|
-| [`extension/`](extension/README.md) | Chrome extension (Manifest V3) | The part that actually applies, on all three boards |
-| [`frontend/`](frontend/README.md) | Static web app | Sign in and see your history anywhere |
-| [`backend/`](backend/README.md) | Express API | Accounts, history, resume storage, your ranking threshold |
+| [`frontend/`](frontend/README.md) | Static web app | **Where you set everything up**: upload your resume, edit your profile and every setting, see your history |
+| [`extension/`](extension/README.md) | Chrome extension (Manifest V3) | Does the applying, on all three boards, using what is on your account |
+| [`backend/`](backend/README.md) | Express API | Accounts, settings, resumes, history |
 | [`ranker/`](ranker/README.md) | Python service | Scores each posting against your resume and decides apply or skip |
 | [`supabase/`](supabase/README.md) | Postgres schema + RLS + storage bucket | The database |
 
-The extension works entirely on its own, with a simpler built-in keyword
-scorer. The rest are needed for the ranker, and for the history to outlive an
-uninstall and be readable from another machine.
+Your resume, profile and settings live on your account and are edited only on
+the website. The extension signs in to the account, downloads them before every
+run (and every 30 minutes in between), and does what they say. If the account
+can't be reached it runs on the last copy it downloaded. Questions a run could
+not answer are sent back to the website, where they become answer rules.
+
+Code both sides need (settings defaults, job boards, career sites, resume
+parsing, the dashboard) has one home and is copied across by
+`node scripts/sync-dashboard.mjs`; `--check` fails if a copy is stale.
 
 ## How a run chooses jobs
 
 Every run, manual or scheduled, reads the full description of about three times
 as many postings as it is allowed to apply to, has the ranker score each one,
 and then applies to the highest scores first, down to your threshold. The
-threshold is stored on your account and can be changed from the web dashboard
-or the extension's Settings.
+threshold is part of your settings on the website.
 
 Once a day (2 PM by default) a run starts by itself on postings from the last 24
 hours, newest first, because early applicants get seen first. If Chrome is closed
@@ -42,13 +47,12 @@ at 2 PM, it runs as soon as Chrome opens, any time before midnight.
 
 ## Getting started
 
-**Just the extension** — no server, nothing leaves your machine:
+**Using it:** create an account on the jobDo website, upload your resume in
+Settings and check the profile it reads out of it. Then install the extension
+(`chrome://extensions` → Developer mode → **Load unpacked** → pick `extension/`),
+sign in on its settings page, and press Start in its popup.
 
-`chrome://extensions` → Developer mode → **Load unpacked** → pick `extension/`.
-Then upload your resume in Settings and read
-[extension/README.md](extension/README.md).
-
-**With an account and the web dashboard:**
+**Running your own servers:**
 
 ```bash
 # 1. Create a Supabase project and run the migrations in supabase/migrations/

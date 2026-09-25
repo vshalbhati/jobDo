@@ -1,5 +1,5 @@
-// Talks to the self-hosted server. The extension stays fully usable with sync
-// switched off - this only ever mirrors data upward, never depends on it.
+// Talks to the jobDo account. Settings, profile and resume come down from it
+// (they are edited on the website); applications go up to it as they happen.
 import { getConfig, setConfig, getHistory, log } from './storage.js';
 
 export function normalizeUrl(url) {
@@ -128,8 +128,9 @@ export async function pushAll(cfg) {
   return { saved, total: all.length };
 }
 
-export async function pushResume(cfg) {
-  if (!cfg.resume.dataUrl) throw new Error('No resume stored in the extension yet.');
+// Only used once, to hand a resume kept by an older version of the extension
+// to the account (see adoptLocalData). Resumes are uploaded on the website.
+async function pushResume(cfg) {
   return authedCall(cfg, '/resume', {
     method: 'POST',
     body: {
@@ -140,12 +141,6 @@ export async function pushResume(cfg) {
       profile: cfg.profile
     }
   });
-}
-
-// The profile is corrected by hand far more often than the file changes;
-// this keeps the server's copy (and the web dashboard) in step with it.
-export async function pushProfile(cfg) {
-  return authedCall(cfg, '/resumes/current/profile', { method: 'PUT', body: { profile: cfg.profile } });
 }
 
 // Called from the run loop after each application. Failures are recorded and
@@ -170,6 +165,101 @@ export async function autoPushMany(items) {
 }
 
 export const isConnected = (cfg) => !!(cfg.sync.enabled && cfg.sync.token && cfg.sync.serverUrl);
+
+// ------------------------------------------------------ account -> browser
+
+// Settings sections the website owns. schedule.lastRunDay and the stats are
+// this browser's own state and are never overwritten.
+const PULLED = ['sites', 'search', 'match', 'rank', 'safety', 'portal'];
+
+// Downloads everything a run needs and stores it as this browser's copy: the
+// settings, the profile typed into forms, and the resume (its text for the
+// ranker, the file itself for uploading to applications). The file is only
+// downloaded again when its hash has changed. Returns the updated config.
+export async function pullAccount(cfg) {
+  let conf = await authedCall(cfg, '/config');
+  let current = await authedCall(cfg, '/resumes/current').catch((e) => {
+    if (e.status === 404) return null;
+    throw e;
+  });
+
+  // Upgrading from a version that kept settings in the browser: the first
+  // time, the account adopts this browser's settings and resume rather than
+  // this browser being reset to defaults.
+  if (!cfg.sync.migrated) {
+    const adopted = await adoptLocalData(cfg, conf, current);
+    if (adopted.config) conf = adopted.config;
+    if (adopted.resume) current = adopted.resume;
+  }
+
+  const c = conf.config || {};
+  const patch = { sync: { lastPullAt: Date.now(), lastPullError: '', migrated: true } };
+  for (const s of PULLED) if (c[s] && typeof c[s] === 'object') patch[s] = c[s];
+  if (c.schedule) patch.schedule = { enabled: !!c.schedule.enabled, time: c.schedule.time || '14:00' };
+  if (c.answers && Array.isArray(c.answers.rules)) patch.answers = { rules: c.answers.rules };
+
+  if (current) {
+    const sameFile = cfg.resume.sha256 === current.sha256 && cfg.resume.dataUrl;
+    patch.resume = {
+      id: current.id, sha256: current.sha256, fileName: current.filename, mime: current.mime,
+      text: current.text || '', uploadedAt: Date.parse(current.uploadedAt) || Number(current.uploadedAt) || 0,
+      dataUrl: sameFile ? cfg.resume.dataUrl : await downloadResumeFile(cfg, current)
+    };
+    if (current.profile) patch.profile = current.profile;
+  } else {
+    // Removed on the website: runs must not keep using an old copy.
+    patch.resume = { id: '', sha256: '', fileName: '', mime: '', text: '', uploadedAt: 0, dataUrl: '' };
+  }
+  if (c.resume && c.resume.strategy) patch.resume.strategy = c.resume.strategy;
+  return setConfig(patch);
+}
+
+async function adoptLocalData(cfg, conf, current) {
+  const out = {};
+  const empty = !conf.config || !Object.keys(conf.config).some((k) => k !== 'match' || Object.keys(conf.config.match).length > 1);
+  if (empty) {
+    const config = {
+      sites: cfg.sites, search: cfg.search, match: cfg.match, rank: cfg.rank, safety: cfg.safety,
+      portal: cfg.portal, answers: { rules: cfg.answers.rules },
+      schedule: { enabled: cfg.schedule.enabled, time: cfg.schedule.time },
+      resume: { strategy: cfg.resume.strategy }
+    };
+    out.config = await authedCall(cfg, '/config', { method: 'PATCH', body: { config } });
+  }
+  if (!current && cfg.resume.dataUrl) {
+    await pushResume(cfg);
+    out.resume = await authedCall(cfg, '/resumes/current');
+  }
+  return out;
+}
+
+async function downloadResumeFile(cfg, current) {
+  // The /config call just before has already renewed the token if it had to.
+  const res = await fetch(normalizeUrl(cfg.sync.serverUrl) + '/api/resumes/' + encodeURIComponent(current.id) + '/file', {
+    headers: { Authorization: 'Bearer ' + cfg.sync.token }
+  });
+  if (!res.ok) throw new Error('Could not download the resume file (' + res.status + ')');
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  // No FileReader in a service worker: base64 by hand, in chunks, because
+  // String.fromCharCode(...bigArray) overflows the call stack.
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return 'data:' + (current.mime || 'application/octet-stream') + ';base64,' + btoa(bin);
+}
+
+// ------------------------------------------------------ browser -> account
+
+// A quick switch flipped in the popup (dry run, review before submit) is
+// saved to the account, or the next download would flip it straight back.
+export async function patchConfig(cfg, config) {
+  return authedCall(cfg, '/config', { method: 'PATCH', body: { config } });
+}
+
+// Questions a run could not answer, so they can be turned into rules on the website.
+export async function pushUnknownQuestions(cfg, questions) {
+  if (!questions.length) return null;
+  return authedCall(cfg, '/unknown-questions', { method: 'POST', body: { questions: questions.slice(-20) } });
+}
 
 // ------------------------------------------------------------------ ranking
 

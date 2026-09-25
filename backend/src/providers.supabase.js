@@ -223,17 +223,20 @@ export function repoFor(user, accessToken) {
       // No row yet means the defaults: rows are created on first save.
       async get() {
         const { data, error } = await db.from('user_settings')
-          .select('min_score,updated_at').eq('user_id', uid).maybeSingle();
+          .select(SETTINGS_COLUMNS).eq('user_id', uid).maybeSingle();
         if (error) throw fail(error, 'Could not read your settings.');
         return toSettings(data);
       },
 
+      // Only the fields present in the patch are written.
       async update(patch) {
         const row = { user_id: uid, updated_at: new Date().toISOString() };
         if (patch.minScore !== undefined) row.min_score = patch.minScore;
+        if (patch.config !== undefined) row.config = patch.config;
+        if (patch.unknownQuestions !== undefined) row.unknown_questions = patch.unknownQuestions;
         const { data, error } = await db.from('user_settings')
           .upsert(row, { onConflict: 'user_id' })
-          .select('min_score,updated_at').single();
+          .select(SETTINGS_COLUMNS).single();
         if (error) throw fail(error, 'Could not save your settings.');
         return toSettings(data);
       }
@@ -241,8 +244,12 @@ export function repoFor(user, accessToken) {
   };
 }
 
+const SETTINGS_COLUMNS = 'min_score,config,unknown_questions,updated_at';
+
 const toSettings = (r) => ({
   minScore: r && Number.isInteger(r.min_score) ? r.min_score : config.defaultMinScore,
+  config: r && r.config && typeof r.config === 'object' ? r.config : {},
+  unknownQuestions: r && Array.isArray(r.unknown_questions) ? r.unknown_questions : [],
   updatedAt: r ? r.updated_at : null
 });
 

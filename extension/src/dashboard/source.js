@@ -24,7 +24,7 @@ function toLogin() {
   location.href = '../index.html?next=' + encodeURIComponent(location.pathname);
 }
 
-async function apiFetch(path, opts = {}) {
+export async function apiFetch(path, opts = {}) {
   const res = await fetch(API + '/api' + path, {
     credentials: 'include',          // the session is in HttpOnly cookies
     headers: { Accept: 'application/json', ...(opts.headers || {}) },
@@ -181,8 +181,14 @@ export async function saveThreshold(minScore) {
 
 // ------------------------------------------------------------------ actions
 
-export function openSettings() {
-  if (IS_EXTENSION) chrome.runtime.openOptionsPage();
+// Settings are edited on the website. Inside the extension that page is on
+// another origin, so it opens in a tab at the account's web address.
+export async function openSettings() {
+  if (!IS_EXTENSION) { location.href = '../settings/'; return; }
+  const cfg = await (await extStorage()).getConfig();
+  const web = String(cfg.sync.webUrl || '').replace(/\/+$/, '');
+  if (web) chrome.tabs.create({ url: web + '/settings/' });
+  else chrome.runtime.openOptionsPage();
 }
 
 export async function signOut() {

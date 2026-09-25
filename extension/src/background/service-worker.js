@@ -3,7 +3,7 @@ import { scoreJob, hardSkip } from '../shared/matcher.js';
 import { searchKeywordsFrom } from '../shared/resume.js';
 import { detectAts, isLinkedInRedirect } from '../shared/ats.js';
 import { SITES, siteForUrl } from '../shared/sites.js';
-import { autoPush, autoPushMany, isConnected, rankRemote } from '../shared/sync.js';
+import { autoPush, autoPushMany, isConnected, rankRemote, pullAccount, pushUnknownQuestions } from '../shared/sync.js';
 import { isDue, scheduledAt } from '../shared/schedule.js';
 
 const CONTENT_FILES = [
@@ -34,6 +34,10 @@ let loopRunning = false;
 let stopRequested = false;
 
 const WATCHDOG = 'lea-watchdog';
+// Settings are edited on the website; this is how often a change there (the
+// daily run time, say) reaches a browser that is not running anything.
+const PULL = 'jobdo-pull';
+const PULL_EVERY_MINUTES = 30;
 const MAX_PAGES = 40;               // per board; they stop paginating well before this
 const PREFILTER_MIN = 20;           // title-only score a card needs before its description is read
 const RANK_BATCH = 15;              // postings per ranking request
@@ -48,18 +52,36 @@ chrome.runtime.onInstalled.addListener(async () => {
   await setConfig({});
   await resetRun();
   chrome.alarms.create(WATCHDOG, { periodInMinutes: 1 });
+  chrome.alarms.create(PULL, { periodInMinutes: PULL_EVERY_MINUTES });
   // Installing or updating after today's run time should not start a run
   // on the spot; the schedule picks up from the next one.
   const cfg = await getConfig();
   if (isDue(cfg)) await setConfig({ schedule: { lastRunDay: new Date().toDateString() } });
-  log('info', 'Extension installed. Open Options and upload your resume to get started.');
+  log('info', 'Extension installed. Sign in to your jobDo account on its settings page to get started.');
+  await refreshFromAccount();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(WATCHDOG, { periodInMinutes: 1 });
+  chrome.alarms.create(PULL, { periodInMinutes: PULL_EVERY_MINUTES });
+  refreshFromAccount();
 });
 
+// Keeps this browser's copy of the settings and resume current. Never during
+// a run: a run works from the settings it started with.
+async function refreshFromAccount() {
+  const cfg = await getConfig();
+  if (!isConnected(cfg) || (await getRun()).active) return null;
+  try {
+    return await pullAccount(cfg);
+  } catch (e) {
+    await setConfig({ sync: { lastPullError: e.message } });
+    return null;
+  }
+}
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === PULL) { await refreshFromAccount(); return; }
   if (alarm.name !== WATCHDOG) return;
   const run = await getRun();
   if (run.active && !loopRunning) {
@@ -84,6 +106,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'GET_STATE') {
     Promise.all([getConfig(), getRun(), getHistory()])
       .then(([cfg, run, history]) => sendResponse({ cfg, run, historyCount: Object.keys(history).length }));
+    return true;
+  }
+  if (type === 'PULL_NOW') {
+    getConfig()
+      .then((cfg) => (isConnected(cfg) ? pullAccount(cfg) : Promise.reject(new Error('Not signed in.'))))
+      .then((cfg) => sendResponse({ ok: true, at: cfg.sync.lastPullAt }),
+        async (e) => { await setConfig({ sync: { lastPullError: e.message } }); sendResponse({ error: e.message }); });
     return true;
   }
   return false;
@@ -132,8 +161,21 @@ const FRESH_BOARD = {
 };
 
 async function startRun({ scheduled = false } = {}) {
-  const cfg = await getConfig();
-  if (!cfg.resume.text) throw new Error('Upload a resume on the Options page first.');
+  let cfg = await getConfig();
+  if (!isConnected(cfg)) {
+    throw new Error('Sign in to your jobDo account first: open the extension\'s settings page.');
+  }
+  // The website is where everything is edited; start from its latest version.
+  // If the account cannot be reached, the copy from the last download will do.
+  try {
+    cfg = await pullAccount(cfg);
+  } catch (e) {
+    await setConfig({ sync: { lastPullError: e.message } });
+    if (!cfg.resume.text) throw new Error('Could not download your resume and settings: ' + e.message);
+    log('warn', 'Could not reach your jobDo account (' + e.message + '); running on the copy downloaded ' +
+      (cfg.sync.lastPullAt ? new Date(cfg.sync.lastPullAt).toLocaleString() : 'earlier') + '.');
+  }
+  if (!cfg.resume.text) throw new Error('Upload your resume on the jobDo website first (Settings → 1. Resume).');
 
   const sites = enabledSites(cfg);
   if (!sites.length) throw new Error('No job boards are switched on. Pick at least one in Settings.');
@@ -743,17 +785,24 @@ async function ensurePortalScript(tabId) {
   await sleep(800);
 }
 
+// Kept locally, and sent to the account so they can be answered on the website.
 async function recordUnknowns(unknowns, job) {
   const cfg = await getConfig();
   const existing = cfg.answers.unknownQuestions || [];
+  const fresh = [];
   for (const u of unknowns) {
     if (existing.some((e) => e.label === u.label)) continue;
-    existing.push({
+    const q = {
       label: u.label, kind: u.kind, options: u.options || [],
       job: job.title + ' @ ' + job.company, at: Date.now()
-    });
+    };
+    existing.push(q);
+    fresh.push(q);
   }
   await setConfig({ answers: { unknownQuestions: existing.slice(-60) } });
+  if (fresh.length && isConnected(cfg)) {
+    await pushUnknownQuestions(cfg, fresh).catch((e) => log('warn', 'Could not report new questions to your account: ' + e.message));
+  }
 }
 
 // ------------------------------------------------------------------- plumbing

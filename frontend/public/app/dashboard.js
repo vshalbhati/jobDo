@@ -316,7 +316,6 @@ async function renderLive() {
     $('who').textContent = summary.email;
     $('who').classList.remove('hidden');
     $('signout').classList.remove('hidden');
-    $('openOptions').classList.add('hidden');
   }
 }
 
@@ -391,10 +390,8 @@ async function initResume() {
 
   if (!resume) {
     $('resumeSub').textContent = 'What the ranker compares every job against.';
-    $('resumeEmpty').textContent = MODE === 'web'
-      ? 'No resume on this account yet. In the extension, connect your account in Settings → 8. Account & sync; ' +
-        'your resume uploads automatically, and so does every change you save to your profile.'
-      : 'No resume yet. Add one in Settings → 1. Resume.';
+    $('resumeEmpty').textContent = 'No resume on this account yet. Upload one in Settings → 1. Resume; ' +
+      'the extension picks it up before its next run.';
     $('resumeEmpty').classList.remove('hidden');
     return;
   }

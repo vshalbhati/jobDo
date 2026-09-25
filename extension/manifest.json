@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "jobDo",
   "version": "0.1.0",
-  "description": "Reads your resume, finds matching jobs on LinkedIn, Naukri and Indeed, and applies to them one at a time with human-like pacing and safety caps.",
+  "description": "Applies to the jobs that best match your resume on LinkedIn, Naukri and Indeed, one at a time with human-like pacing and safety caps. Set up on the jobDo website.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
@@ -12,6 +12,7 @@
     "alarms"
   ],
   "host_permissions": [
+    "https://job-do.vercel.app/*",
     "https://www.linkedin.com/*",
     "https://www.naukri.com/*",
     "https://*.indeed.com/*",

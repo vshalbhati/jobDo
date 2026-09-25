@@ -1,5 +1,6 @@
 import { getConfig, setConfig, getRun, getLog, clearLog } from '../shared/storage.js';
 import { describeNextRun } from '../shared/schedule.js';
+import { isConnected, patchConfig, normalizeUrl } from '../shared/sync.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -27,8 +28,14 @@ async function render() {
 
   $('resumeName').textContent = cfg.resume.fileName || 'no resume';
   const warn = $('warning');
-  if (!cfg.resume.text) {
-    warn.textContent = 'Upload your resume in Settings before starting.';
+  if (toggleError) {
+    warn.textContent = toggleError;
+    warn.classList.remove('hidden');
+  } else if (!isConnected(cfg)) {
+    warn.textContent = 'Sign in to your jobDo account first: press Account below.';
+    warn.classList.remove('hidden');
+  } else if (!cfg.resume.text) {
+    warn.textContent = 'Upload your resume on the jobDo website before starting: press Settings below.';
     warn.classList.remove('hidden');
   } else if (cfg.safety.dryRun) {
     warn.textContent = 'Dry run is on: it will fill every form but never press Submit.';
@@ -73,10 +80,36 @@ $('stop').onclick = async () => {
   render();
 };
 
-$('dryRun').onchange = (e) => setConfig({ safety: { dryRun: e.target.checked } }).then(render);
-$('review').onchange = (e) => setConfig({ safety: { reviewBeforeSubmit: e.target.checked } }).then(render);
+// These two switches are settings like any other, so they are saved to the
+// account; otherwise the next download from it would switch them back.
+let toggleError = '';
+
+async function toggle(field, value) {
+  toggleError = '';
+  const before = (await getConfig()).safety[field];
+  const cfg = await setConfig({ safety: { [field]: value } });
+  if (isConnected(cfg)) {
+    try {
+      await patchConfig(cfg, { safety: { [field]: value } });
+    } catch (e) {
+      await setConfig({ safety: { [field]: before } });
+      toggleError = 'Not changed: could not save it to your account (' + e.message + ').';
+    }
+  }
+  render();
+}
+
+$('dryRun').onchange = (e) => toggle('dryRun', e.target.checked);
+$('review').onchange = (e) => toggle('reviewBeforeSubmit', e.target.checked);
 $('clearLog').onclick = () => clearLog().then(render);
-$('options').onclick = () => chrome.runtime.openOptionsPage();
+// Settings live on the website; the extension's own page is just the account.
+$('options').onclick = async () => {
+  const cfg = await getConfig();
+  if (isConnected(cfg) && cfg.sync.webUrl) chrome.tabs.create({ url: normalizeUrl(cfg.sync.webUrl) + '/settings/' });
+  else chrome.runtime.openOptionsPage();
+  window.close();
+};
+$('account').onclick = () => { chrome.runtime.openOptionsPage(); window.close(); };
 $('dashboard').onclick = () => {
   chrome.tabs.create({ url: chrome.runtime.getURL('src/dashboard/dashboard.html') });
   window.close();
@@ -88,3 +121,5 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 render();
 setInterval(render, 2000);
+// Opening the popup is a good moment to pick up changes made on the website.
+chrome.runtime.sendMessage({ type: 'PULL_NOW' }).then(render, () => {});

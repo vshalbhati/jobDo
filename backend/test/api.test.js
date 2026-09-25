@@ -404,6 +404,74 @@ stubRanker.fail = false;
 r = await req('OPTIONS', '/api/settings', { origin: 'https://app.example.com' });
 ok('preflight allows PUT', /PUT/.test(r.headers.get('access-control-allow-methods') || ''), r.headers.get('access-control-allow-methods'));
 
+section('config (every setting lives on the account)');
+r = await req('GET', '/api/config', { token: tokenB });
+ok('a new account starts with empty settings and the default threshold',
+  r.status === 200 && r.data.config.match.minScore === 60 && Array.isArray(r.data.unknownQuestions), r.data);
+
+r = await req('PATCH', '/api/config', { token: tokenB, body: { config: {
+  search: { keywords: 'react developer', location: 'Bengaluru' },
+  safety: { dryRun: true, maxPerDay: 40 },
+  sites: { linkedin: { enabled: true, maxPerRun: 15 } },
+  answers: { rules: [{ id: 'u1', pattern: 'notice', answer: '30', enabled: true }] },
+  match: { minScore: 70, titleExclude: ['intern'] }
+} } });
+ok('the web app saves settings', r.status === 200 && r.data.config.search.keywords === 'react developer', r.data);
+ok('  the threshold goes to its own column', r.data.config.match.minScore === 70, r.data.config.match);
+r = await req('GET', '/api/settings', { token: tokenB });
+ok('  so the ranker and the old settings endpoint see it too', r.data.minScore === 70, r.data);
+
+r = await req('PATCH', '/api/config', { token: tokenB, body: { config: { safety: { dryRun: false } } } });
+ok('one switch can be flipped without losing the rest of its section',
+  r.data.config.safety.dryRun === false && r.data.config.safety.maxPerDay === 40, r.data.config.safety);
+ok('  or any other section', r.data.config.search.keywords === 'react developer' && r.data.config.match.minScore === 70, r.data.config);
+
+r = await req('PATCH', '/api/config', { token: tokenB, body: { config: { answers: { unknownQuestions: [{ label: 'x' }] }, schedule: { time: '09:30', lastRunDay: 'Mon' } } } });
+ok('per-browser state and reported questions cannot be written through config',
+  !('unknownQuestions' in r.data.config.answers) && !('lastRunDay' in r.data.config.schedule) && r.data.config.schedule.time === '09:30', r.data.config);
+
+for (const [name, body] of [
+  ['a non-object', { config: 'x' }],
+  ['an unknown section', { config: { hacks: {} } }],
+  ['a section that is not an object', { config: { search: ['a'] } }],
+  ['a bad threshold', { config: { match: { minScore: 101 } } }],
+  ['a string threshold', { config: { match: { minScore: '70' } } }]
+]) {
+  r = await req('PATCH', '/api/config', { token: tokenB, body });
+  ok('rejects ' + name, r.status === 400, { status: r.status, data: r.data });
+}
+r = await req('PATCH', '/api/config', { token: tokenB, body: { config: { portal: { coverLetter: 'x'.repeat(300000) } } } });
+ok('rejects oversized settings', r.status === 413, r.status);
+r = await req('GET', '/api/config', { token: refreshedToken });
+ok("one account's settings never leak into another's", r.data.config.search === undefined, r.data.config.search);
+r = await req('PATCH', '/api/config', { body: { config: { search: {} } } });
+ok('changing settings needs a sign-in', r.status === 401, r.status);
+r = await req('OPTIONS', '/api/config', { origin: 'https://app.example.com' });
+ok('preflight allows PATCH', /PATCH/.test(r.headers.get('access-control-allow-methods') || ''), r.headers.get('access-control-allow-methods'));
+
+section('questions a run could not answer');
+r = await req('POST', '/api/unknown-questions', { token: tokenB, body: { questions: [
+  { label: 'Are you willing to work weekends?', kind: 'radio', options: ['Yes', 'No'], job: 'Engineer @ Acme', at: 1 },
+  { label: 'Are you willing to work weekends?', kind: 'radio' },
+  { label: '  ' }
+] } });
+ok('the extension reports them, once each', r.status === 200 && r.data.unknownQuestions.length === 1, r.data);
+r = await req('GET', '/api/config', { token: tokenB });
+ok('  and the web app reads them with the settings', r.data.unknownQuestions[0].options[1] === 'No', r.data.unknownQuestions);
+await req('POST', '/api/unknown-questions', { token: tokenB, body: { questions: [{ label: 'Second question?' }] } });
+r = await req('DELETE', '/api/unknown-questions?label=' + encodeURIComponent('Are you willing to work weekends?'), { token: tokenB });
+ok('one can be dismissed', r.data.unknownQuestions.length === 1 && r.data.unknownQuestions[0].label === 'Second question?', r.data);
+r = await req('DELETE', '/api/unknown-questions', { token: tokenB });
+ok('or all of them', r.data.unknownQuestions.length === 0, r.data);
+r = await req('POST', '/api/unknown-questions', { token: tokenB, body: { questions: Array.from({ length: 21 }, (_, i) => ({ label: 'q' + i })) } });
+ok('a flood is refused', r.status === 400, r.status);
+
+section('the extension downloads the resume from the account');
+r = await req('GET', '/api/resumes/current', { token: refreshedToken });
+ok('with its text, profile and hash', r.status === 200 && typeof r.data.text === 'string' && !!r.data.sha256 && 'profile' in r.data, Object.keys(r.data));
+r = await req('GET', '/api/resumes/current', { token: tokenB });
+ok('an account without one gets 404', r.status === 404, r.status);
+
 section('logout');
 r = await req('POST', '/api/auth/logout', { token: tokenB });
 ok('logout succeeds', r.status === 200);

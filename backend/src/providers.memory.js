@@ -197,20 +197,30 @@ export function repoFor(user) {
 
     settings: {
       async get() {
-        const r = settingsRows.get(uid);
-        return { minScore: r ? r.min_score : config.defaultMinScore, updatedAt: r ? r.updated_at : null };
+        return view(settingsRows.get(uid));
       },
 
       async update(patch) {
-        const r = settingsRows.get(uid) || { min_score: config.defaultMinScore };
+        const r = settingsRows.get(uid) || { min_score: config.defaultMinScore, config: {}, unknown_questions: [] };
         if (patch.minScore !== undefined) r.min_score = patch.minScore;
+        // Stored as copies, as Postgres would: later edits to the caller's
+        // objects must not leak into what was saved.
+        if (patch.config !== undefined) r.config = structuredClone(patch.config);
+        if (patch.unknownQuestions !== undefined) r.unknown_questions = structuredClone(patch.unknownQuestions);
         r.updated_at = new Date().toISOString();
         settingsRows.set(uid, r);
-        return { minScore: r.min_score, updatedAt: r.updated_at };
+        return view(r);
       }
     }
   };
 }
+
+const view = (r) => ({
+  minScore: r ? r.min_score : config.defaultMinScore,
+  config: r ? structuredClone(r.config) : {},
+  unknownQuestions: r ? structuredClone(r.unknown_questions) : [],
+  updatedAt: r ? r.updated_at : null
+});
 
 const toRecord = (r) => ({
   jobId: r.job_id, title: r.title, company: r.company, location: r.location, url: r.url,

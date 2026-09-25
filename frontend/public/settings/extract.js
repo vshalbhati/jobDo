@@ -1,6 +1,7 @@
-// Pulls plain text out of a resume file. PDF goes through the bundled pdf.js
-// (no remote code - MV3 forbids it); DOCX is unzipped with the platform's own
-// DecompressionStream, so there is no third-party zip library either.
+// Pulls plain text out of a resume file, in the browser: the file never has to
+// be parsed on a server. PDF goes through pdf.js, served from this site; DOCX
+// is unzipped with the platform's own DecompressionStream, so there is no
+// third-party zip library either.
 
 export async function extractText(file) {
   const name = (file.name || '').toLowerCase();
@@ -12,7 +13,7 @@ export async function extractText(file) {
 
 async function extractPdf(file) {
   const pdfjs = await import('../vendor/pdf.min.mjs');
-  pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('src/vendor/pdf.worker.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdf.worker.min.mjs', import.meta.url).href;
   const data = new Uint8Array(await file.arrayBuffer());
   const doc = await pdfjs.getDocument({ data, isEvalSupported: false, useSystemFonts: false }).promise;
 
