@@ -64,6 +64,31 @@
     </div>
   </section>
 
+  <!-- what the ranker compares every job against -->
+  <section class="card resume-card hidden" id="resumeCard" aria-labelledby="resumeTitle">
+    <div class="resume-head">
+      <div>
+        <h2 id="resumeTitle">Your resume</h2>
+        <p class="card-sub" id="resumeSub"></p>
+      </div>
+      <button id="resumeDownload" class="ghost hidden" type="button">Download</button>
+    </div>
+    <p class="resume-empty hidden" id="resumeEmpty"></p>
+    <div class="resume-body hidden" id="resumeBody">
+      <dl class="resume-facts" id="resumeFacts"></dl>
+      <div class="resume-lists">
+        <div>
+          <h3>Job titles</h3>
+          <div class="chips" id="resumeTitles"></div>
+        </div>
+        <div>
+          <h3>Skills <span class="resume-count" id="resumeSkillCount"></span></h3>
+          <div class="chips" id="resumeSkills"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="grid">
     <article class="card wide">
       <h2>Applications submitted per day</h2>

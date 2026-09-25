@@ -42,7 +42,11 @@ async function apiFetch(path, opts = {}) {
     toLogin();
     throw new Error('not signed in');
   }
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  if (!res.ok) {
+    const err = new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
@@ -115,6 +119,46 @@ export async function getTheme() {
 export async function setTheme(value) {
   if (IS_EXTENSION) return chrome.storage.local.set({ dashTheme: value });
   try { localStorage.setItem('dashTheme', value); } catch { /* private window */ }
+}
+
+// ------------------------------------------------------------------- resume
+
+// What the ranker compares every job against: the resume on the account on
+// the web, the one in this browser inside the extension. null if there is none.
+export async function loadResume() {
+  if (IS_EXTENSION) {
+    const cfg = await (await extStorage()).getConfig();
+    if (!cfg.resume.fileName) return null;
+    return {
+      filename: cfg.resume.fileName, mime: cfg.resume.mime, size: null,
+      uploadedAt: cfg.resume.uploadedAt, profile: cfg.profile,
+      downloadable: !!cfg.resume.dataUrl
+    };
+  }
+  try {
+    const r = await apiGet('/resumes/current/profile');
+    // Supabase sends an ISO date; the in-memory test backend a timestamp.
+    const at = typeof r.uploadedAt === 'number' ? r.uploadedAt : Date.parse(r.uploadedAt);
+    return { ...r, uploadedAt: Number.isFinite(at) ? at : null, downloadable: true };
+  } catch (e) {
+    if (e.status === 404) return null;
+    throw e;
+  }
+}
+
+export async function downloadResume(resume) {
+  const a = document.createElement('a');
+  a.download = resume.filename || 'resume';
+  if (IS_EXTENSION) {
+    a.href = (await (await extStorage()).getConfig()).resume.dataUrl;
+    a.click();
+    return;
+  }
+  const res = await fetch(API + '/api/resumes/' + encodeURIComponent(resume.id) + '/file', { credentials: 'include' });
+  if (!res.ok) throw new Error('Download failed (' + res.status + ')');
+  a.href = URL.createObjectURL(await res.blob());
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
 // ------------------------------------------------------- ranking threshold

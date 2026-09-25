@@ -3,7 +3,7 @@ import { DEFAULT_RULES } from '../shared/defaults.js';
 import { parseResumeText, searchKeywordsFrom } from '../shared/resume.js';
 import { SITE_LIST, SITES } from '../shared/sites.js';
 import { ATS_LIST } from '../shared/ats.js';
-import { authenticate, whoAmI, pushAll, pushResume, normalizeUrl, originOf, isConnected, fetchSettings, saveSettings } from '../shared/sync.js';
+import { authenticate, whoAmI, pushAll, pushResume, pushProfile, normalizeUrl, originOf, isConnected, fetchSettings, saveSettings } from '../shared/sync.js';
 import { describeNextRun } from '../shared/schedule.js';
 import { extractText, fileToDataUrl } from './extract.js';
 
@@ -216,6 +216,20 @@ async function save() {
   renderUrlPreview();
   renderSchedule();
   if (thresholdChanged) await pushThreshold(patch.match.minScore);
+  await pushProfileEdits();
+}
+
+// Profile corrections go to the account too, so the web dashboard shows
+// what the ranker is really comparing jobs against.
+async function pushProfileEdits() {
+  if (!isConnected(cfg) || !cfg.resume.fileName) return;
+  try {
+    await pushProfile(cfg);
+  } catch (e) {
+    // No resume on the account yet: upload it, which carries the profile.
+    if (e.status === 404 && (await syncResume())) return;
+    flash('Saved here, but your profile did not reach your account: ' + e.message);
+  }
 }
 
 // ------------------------------------------------------- threshold & schedule
@@ -290,9 +304,11 @@ $('resumeFile').onchange = async (e) => {
     }
     await log('info', 'Resume loaded: ' + file.name + ' (' + Object.keys(parsed.skills).length + ' skills, ~' + parsed.defaultYears + ' years)');
     await load();
+    const uploaded = await syncResume();
     status.className = 'status-line ok';
     status.textContent = 'Parsed ' + file.name + ': found ' + Object.keys(parsed.skills).length +
-      ' skills, ' + parsed.titles.length + ' titles, about ' + parsed.defaultYears + ' years of experience. Check the profile below.';
+      ' skills, ' + parsed.titles.length + ' titles, about ' + parsed.defaultYears + ' years of experience. Check the profile below.' +
+      (uploaded ? ' It is also on your jobDo account now.' : '');
   } catch (err) {
     status.className = 'status-line err';
     status.textContent = 'Could not read it: ' + err.message;
@@ -486,10 +502,27 @@ async function connect(mode) {
       }
     });
     $('sy-password').value = '';
+    // The web dashboard and the ranker both read the resume from the account.
+    const uploaded = await syncResume();
     await renderSync();
-    syncStatus('Connected. Use "Sync everything now" to upload the history you already have.', 'ok');
+    await loadThreshold();
+    syncStatus('Connected' + (uploaded ? ' and your resume is on your account' : '') +
+      '. Use "Sync everything now" to upload the history you already have.', 'ok');
   } catch (e) {
     syncStatus(e.message, 'err');
+  }
+}
+
+// Uploads the resume file with its profile. The server keeps one copy per
+// distinct file, and a repeat upload just refreshes the profile.
+async function syncResume() {
+  if (!isConnected(cfg) || !cfg.resume.dataUrl) return false;
+  try {
+    await pushResume(cfg);
+    return true;
+  } catch (e) {
+    syncStatus('Your resume did not reach your account: ' + e.message, 'err');
+    return false;
   }
 }
 

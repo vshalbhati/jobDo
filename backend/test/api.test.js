@@ -285,6 +285,35 @@ ok('rejects an upload with no data', r.status === 400, r.status);
 
 r = await req('GET', '/api/resumes/current/profile', { token: refreshedToken });
 ok('exposes the parsed profile', r.status === 200, r.status);
+ok('  with the file details the dashboard shows', 'size' in r.data && 'mime' in r.data && !!r.data.filename, r.data);
+
+section('profile edits reach the server');
+const cvBytes = Buffer.from('%PDF-1.4 profile sync resume');
+await req('POST', '/api/resume', {
+  token: refreshedToken,
+  body: { filename: 'cv.pdf', mime: 'application/pdf', data: cvBytes.toString('base64'), text: 'x', profile: { titles: ['Engineer'] } }
+});
+r = await req('PUT', '/api/resumes/current/profile', { token: refreshedToken, body: { profile: { titles: ['Senior Engineer'], skills: { react: 5 } } } });
+ok('a corrected profile can be saved', r.status === 200, { status: r.status, data: r.data });
+r = await req('GET', '/api/resumes/current/profile', { token: refreshedToken });
+ok('  and is what the dashboard then reads', r.data.profile.titles[0] === 'Senior Engineer' && r.data.profile.skills.react === 5, r.data.profile);
+
+r = await req('POST', '/api/resume', {
+  token: refreshedToken,
+  body: { filename: 'cv.pdf', mime: 'application/pdf', data: cvBytes.toString('base64'), text: 'x', profile: { titles: ['Staff Engineer'] } }
+});
+ok('re-sending the same file is not stored twice', r.data.unchanged === true, r.data);
+r = await req('GET', '/api/resumes/current/profile', { token: refreshedToken });
+ok('  but does bring its profile up to date', r.data.profile.titles[0] === 'Staff Engineer', r.data.profile);
+
+for (const bad of [null, 'text', [1, 2]]) {
+  r = await req('PUT', '/api/resumes/current/profile', { token: refreshedToken, body: { profile: bad } });
+  ok('rejects profile ' + JSON.stringify(bad), r.status === 400, r.status);
+}
+r = await req('PUT', '/api/resumes/current/profile', { token: refreshedToken, body: { profile: { notes: 'x'.repeat(70000) } } });
+ok('rejects an oversized profile', r.status === 413, r.status);
+r = await req('PUT', '/api/resumes/current/profile', { body: { profile: {} } });
+ok('saving a profile needs a sign-in', r.status === 401, r.status);
 
 // ---------------------------------------------------------------------------
 section('one account cannot reach another');
@@ -303,9 +332,10 @@ r = await req('GET', '/api/applications', { token: refreshedToken });
 ok('the same jobId under two accounts stays separate',
   r.data.records.find((x) => x.jobId === '1').company === 'Acme', r.data.records.find((x) => x.jobId === '1'));
 
+const resumesBefore = (await req('GET', '/api/resumes', { token: refreshedToken })).data.resumes.length;
 await req('DELETE', '/api/resumes/' + resumeId, { token: tokenB });
 r = await req('GET', '/api/resumes', { token: refreshedToken });
-ok("cannot delete another account's resume", r.data.resumes.length === 3, r.data.resumes.length);
+ok("cannot delete another account's resume", r.data.resumes.length === resumesBefore, { before: resumesBefore, after: r.data.resumes.length });
 
 // Counted rather than hardcoded, so adding cases above cannot quietly break it.
 const beforeClear = (await req('GET', '/api/applications', { token: refreshedToken })).data.records.length;

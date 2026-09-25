@@ -142,6 +142,12 @@ export async function pushResume(cfg) {
   });
 }
 
+// The profile is corrected by hand far more often than the file changes;
+// this keeps the server's copy (and the web dashboard) in step with it.
+export async function pushProfile(cfg) {
+  return authedCall(cfg, '/resumes/current/profile', { method: 'PUT', body: { profile: cfg.profile } });
+}
+
 // Called from the run loop after each application. Failures are recorded and
 // swallowed: losing the network must never interrupt a run.
 export async function autoPush(jobId, entry) {

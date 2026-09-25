@@ -141,7 +141,12 @@ export function repoFor(user, accessToken) {
     resumes: {
       async add({ filename, mime, buffer, sha256, text, profile }) {
         const existing = await this.current();
-        if (existing && existing.sha256 === sha256) return { id: existing.id, unchanged: true };
+        if (existing && existing.sha256 === sha256) {
+          // Same file, but the profile parsed from it may have been corrected
+          // since: keep the stored copy current.
+          if (profile) await this.updateProfile(profile);
+          return { id: existing.id, unchanged: true };
+        }
 
         // The first path segment must be the user id: the storage policy keys
         // off exactly that.
@@ -180,6 +185,15 @@ export function repoFor(user, accessToken) {
           .select('*').eq('is_current', true).maybeSingle();
         if (error) throw fail(error, 'Could not read the current resume.');
         return data || null;
+      },
+
+      // The profile is edited by hand in the extension after parsing, so it
+      // changes far more often than the file. Returns false with no resume.
+      async updateProfile(profile) {
+        const { data, error } = await db.from('resumes')
+          .update({ profile }).eq('user_id', uid).eq('is_current', true).select('id');
+        if (error) throw fail(error, 'Could not save the profile.');
+        return !!(data && data.length);
       },
 
       async download(id) {

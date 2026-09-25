@@ -150,7 +150,10 @@ export function repoFor(user) {
     resumes: {
       async add({ filename, mime, buffer, sha256, text, profile }) {
         const existing = await this.current();
-        if (existing && existing.sha256 === sha256) return { id: existing.id, unchanged: true };
+        if (existing && existing.sha256 === sha256) {
+          if (profile) await this.updateProfile(profile);
+          return { id: existing.id, unchanged: true };
+        }
         const path = uid + '/' + crypto.randomUUID() + '-' + filename;
         files.set(path, buffer);
         for (const r of mine(resumeRows)) r.is_current = false;
@@ -172,6 +175,13 @@ export function repoFor(user) {
       },
 
       async current() { return mine(resumeRows).find((r) => r.is_current) || null; },
+
+      async updateProfile(profile) {
+        const row = await this.current();
+        if (!row) return false;
+        row.profile = profile;
+        return true;
+      },
 
       async download(id) {
         const row = mine(resumeRows).find((r) => r.id === id);

@@ -236,9 +236,25 @@ api.get('/resumes/current/profile', requireAuth, async (req, res, next) => {
     if (!row) return res.status(404).json({ error: 'No resume uploaded yet.' });
     res.json({
       id: row.id, filename: row.filename, uploadedAt: row.uploaded_at,
+      mime: row.mime, size: row.size,
       profile: row.profile || null,
       textLength: (row.text_content || '').length
     });
+  } catch (e) { next(e); }
+});
+
+// The extension sends the profile again whenever it is edited in Settings,
+// so the web dashboard shows what the ranker is actually comparing against.
+api.put('/resumes/current/profile', requireAuth, async (req, res, next) => {
+  try {
+    const profile = req.body.profile;
+    if (!isPlainObject(profile)) return res.status(400).json({ error: 'Expected { profile: {...} }.' });
+    if (JSON.stringify(profile).length > 64 * 1024) {
+      return res.status(413).json({ error: 'That profile is too large.' });
+    }
+    const saved = await req.repo.resumes.updateProfile(profile);
+    if (!saved) return res.status(404).json({ error: 'No resume uploaded yet.' });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
