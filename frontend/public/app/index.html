@@ -90,8 +90,17 @@
 
     <article class="card">
       <h2>Match score of the jobs it picked</h2>
-      <p class="card-sub">How close to your resume the matched jobs scored.</p>
+      <p class="card-sub">How close to your resume the ranker scored each job it applied to.</p>
       <div class="viz" id="chartScores"></div>
+      <div class="threshold hidden" id="thresholdBox">
+        <label for="thresholdRange">Apply only to jobs scoring at least</label>
+        <div class="threshold-row">
+          <input id="thresholdRange" type="range" min="0" max="100" step="1">
+          <b id="thresholdVal"></b>
+          <button id="thresholdSave" class="ghost" type="button" disabled>Save</button>
+        </div>
+        <p class="threshold-note" id="thresholdNote">Stored on your account. The extension picks it up on its next run.</p>
+      </div>
     </article>
 
     <article class="card wide">

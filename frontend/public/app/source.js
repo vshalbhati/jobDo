@@ -116,6 +116,24 @@ export async function setTheme(value) {
   try { localStorage.setItem('dashTheme', value); } catch { /* private window */ }
 }
 
+// ------------------------------------------------------- ranking threshold
+
+// The threshold lives on the account. The web app edits it here; inside the
+// extension it is changed on the Settings page instead, so this returns null.
+export async function loadThreshold() {
+  if (IS_EXTENSION) return null;
+  return (await apiGet('/settings')).minScore;
+}
+
+export async function saveThreshold(minScore) {
+  const res = await apiFetch('/settings', {
+    method: 'PUT',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ minScore })
+  });
+  return res.minScore;
+}
+
 // ------------------------------------------------------------------ actions
 
 export function openSettings() {
