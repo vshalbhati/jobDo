@@ -214,6 +214,14 @@ class UpstashClient(unittest.TestCase):
         self.assertTrue(RankCache(Upstash(self.url, "wrong")).status().startswith("memory only (Redis unreachable"))
         self.assertTrue(RankCache().status().startswith("memory only"))
 
+    def test_quotes_pasted_from_a_env_snippet_are_removed(self):
+        os.environ["UPSTASH_REDIS_REST_URL"] = '"%s"' % self.url
+        os.environ["UPSTASH_REDIS_REST_TOKEN"] = "'tok'"
+        try:
+            self.assertEqual(RankCache.from_env().status(), "redis")
+        finally:
+            del os.environ["UPSTASH_REDIS_REST_URL"], os.environ["UPSTASH_REDIS_REST_TOKEN"]
+
     def test_reads_vercel_integration_variable_names(self):
         os.environ["KV_REST_API_URL"], os.environ["KV_REST_API_TOKEN"] = self.url, "tok"
         try:

@@ -483,6 +483,22 @@ ok('with Redis down, logins still work and are still limited per instance', limi
 fakeRedis.fail = false;
 resetRateLimits();
 
+section('bad Redis settings never take the server down');
+// Config is read at startup, so each case runs in a fresh process.
+const { execFileSync } = await import('node:child_process');
+const configFor = (env) => JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e',
+  "const { config, validateConfig } = await import('./src/config.js');" +
+  'console.log(JSON.stringify({ url: config.redisUrl, token: config.redisToken, problem: config.redisProblem, fatal: validateConfig() }));'
+], { env: { ...process.env, PROVIDERS: 'memory', KV_REST_API_URL: '', KV_REST_API_TOKEN: '', ...env }, stdio: ['ignore', 'pipe', 'ignore'] }).toString());
+
+let c = configFor({ UPSTASH_REDIS_REST_URL: '"https://x.upstash.io"', UPSTASH_REDIS_REST_TOKEN: '"tok"' });
+ok('quotes pasted from a .env snippet are removed', c.url === 'https://x.upstash.io' && c.token === 'tok' && !c.problem, c);
+c = configFor({ UPSTASH_REDIS_REST_URL: 'redis://default:pw@x.upstash.io:6379', UPSTASH_REDIS_REST_TOKEN: 'tok' });
+ok('a redis:// URL switches Redis off with a reason', c.url === '' && /REST URL/.test(c.problem), c);
+ok('  and is not a startup error', c.fatal.length === 0, c.fatal);
+c = configFor({ UPSTASH_REDIS_REST_URL: 'https://x.upstash.io', UPSTASH_REDIS_REST_TOKEN: '' });
+ok('a missing token switches Redis off, not the server', c.url === '' && /TOKEN/.test(c.problem) && c.fatal.length === 0, c);
+
 console.log('');
 console.log(pass + ' passed, ' + fail + ' failed');
 server.close();

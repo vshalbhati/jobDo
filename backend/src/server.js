@@ -55,6 +55,7 @@ app.get('/api/health', async (_req, res) => res.json({
 // Pings Redis rather than trusting the configuration, so a wrong token shows
 // up here instead of silently falling back to per-instance counting.
 async function rateLimitStore() {
+  if (config.redisProblem) return 'memory (' + config.redisProblem + ')';
   if (!redisConfigured()) return 'memory';
   try {
     const [pong] = await pipeline([['PING']]);

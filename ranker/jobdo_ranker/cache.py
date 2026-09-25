@@ -27,6 +27,14 @@ TTL_SECONDS = 7 * 24 * 3600
 BACKOFF_SECONDS = 60  # after a Redis failure, skip it this long instead of waiting on every batch
 
 
+def _unquote(value):
+    """Values copied from a .env snippet often keep their quotes ("https://...")."""
+    v = str(value or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1].strip()
+    return v
+
+
 def key(kind, version, *parts):
     h = hashlib.sha256("\x1f".join(parts).encode("utf-8", "surrogatepass")).hexdigest()[:40]
     return "jobdo:rk:%s:%s:%s" % (version, kind, h)
@@ -81,8 +89,8 @@ class RankCache:
     @classmethod
     def from_env(cls):
         # UPSTASH_* from the Upstash console; KV_* from Vercel's Upstash integration.
-        url = (os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL") or "").strip()
-        token = (os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN") or "").strip()
+        url = _unquote(os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL"))
+        token = _unquote(os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN"))
         return cls(Upstash(url, token) if url and token else None)
 
     def _redis_usable(self):

@@ -3,6 +3,9 @@
 
 const bool = (v, dflt = false) => (v === undefined ? dflt : /^(1|true|yes)$/i.test(String(v)));
 
+// Values copied from a .env snippet often keep their quotes ("https://...").
+const unquote = (v) => String(v || '').trim().replace(/^(["'])(.*)\1$/, '$2').trim();
+
 export const config = {
   port: Number(process.env.PORT) || 8787,
   host: process.env.HOST || '0.0.0.0',
@@ -31,7 +34,7 @@ export const config = {
 
   // The Python ranking service in ranker/. Optional: without it /api/rank
   // answers 503 and the extension falls back to its own keyword scorer.
-  rankerUrl: (process.env.RANKER_URL || '').trim().replace(/\/+$/, ''),
+  rankerUrl: unquote(process.env.RANKER_URL).replace(/\/+$/, ''),
   rankerSecret: process.env.RANKER_SECRET || '',
   rankerTimeoutMs: Number(process.env.RANKER_TIMEOUT_MS) || 25000,
 
@@ -41,9 +44,10 @@ export const config = {
   // Upstash Redis (REST), shared by every serverless instance: login rate
   // limits live here. Optional; without it each instance counts on its own.
   // The KV_* names are what Vercel's Upstash integration sets.
-  redisUrl: (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').trim().replace(/\/+$/, ''),
-  redisToken: (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '').trim(),
+  redisUrl: unquote(process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL).replace(/\/+$/, ''),
+  redisToken: unquote(process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN),
   redisTimeoutMs: Number(process.env.REDIS_TIMEOUT_MS) || 1500,
+  redisProblem: '',   // set below when the Redis settings are unusable
 
   maxResumeBytes: 8 * 1024 * 1024,
   maxBatch: 2000
@@ -67,14 +71,25 @@ export function validateConfig() {
   if (config.rankerUrl && !config.rankerSecret) {
     problems.push('RANKER_SECRET must be set when RANKER_URL is (the same value as on the ranker).');
   }
-  if (config.redisUrl && !/^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(config.redisUrl)) {
-    problems.push('UPSTASH_REDIS_REST_URL must start with https:// (use the REST URL, not the redis:// one).');
-  }
-  if (config.redisUrl && !config.redisToken) {
-    problems.push('UPSTASH_REDIS_REST_TOKEN must be set when UPSTASH_REDIS_REST_URL is.');
-  }
   if (!['lax', 'none', 'strict'].includes(config.cookieSameSite)) {
     problems.push('COOKIE_SAMESITE must be lax, none or strict.');
   }
   return problems;
+}
+
+// Redis is an optimisation, so a bad Redis setting must never stop the server
+// from starting: it switches Redis off, and /api/health says why.
+function checkRedis() {
+  if (!config.redisUrl && !config.redisToken) return '';
+  if (!/^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(config.redisUrl)) {
+    return 'UPSTASH_REDIS_REST_URL must be the REST URL, starting with https:// (not the redis:// one)';
+  }
+  if (!config.redisToken) return 'UPSTASH_REDIS_REST_TOKEN is not set';
+  return '';
+}
+config.redisProblem = checkRedis();
+if (config.redisProblem) {
+  console.error('Redis switched off: ' + config.redisProblem);
+  config.redisUrl = '';
+  config.redisToken = '';
 }
