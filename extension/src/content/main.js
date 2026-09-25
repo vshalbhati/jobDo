@@ -120,7 +120,7 @@ window.LEA = window.LEA || {};
       root.innerHTML =
         '<div style="display:flex;align-items:center;gap:8px">' +
         '<span style="width:8px;height:8px;border-radius:50%;background:#4ade80" id="lea-dot"></span>' +
-        '<strong style="flex:1">Easy Apply Autopilot</strong>' +
+        '<strong style="flex:1">jobDo</strong>' +
         '<button id="lea-stop" style="background:#b91c1c;color:#fff;border:0;border-radius:12px;padding:3px 10px;cursor:pointer;font-size:11px">Stop</button>' +
         '</div>' +
         '<div id="lea-phase" style="margin-top:6px;color:#cbd5e1"></div>' +

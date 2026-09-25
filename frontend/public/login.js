@@ -1,6 +1,6 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var API = window.EASY_APPLY_API || '';
+  var API = window.JOBDO_API || '';
   var mode = 'login';
 
   function setMode(next) {

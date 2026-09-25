@@ -35,7 +35,7 @@ or any web server — output directory `public`, no build command.
 backend's URL.
 
 ```js
-var API_BASE = 'https://easy-apply-api.onrender.com';
+var API_BASE = 'https://job-do.vercel.app';
 ```
 
 Then add this site's origin to `CORS_ORIGINS` in the backend's environment, and
@@ -44,7 +44,7 @@ Then add this site's origin to `CORS_ORIGINS` in the backend's environment, and
 session cookie and you will appear to be signed out immediately after signing
 in.
 
-For testing a deployed API from a local page, `localStorage.setItem('easyApplyApi', 'https://...')`
+For testing a deployed API from a local page, `localStorage.setItem('jobdoApi', 'https://...')`
 overrides it without editing the file.
 
 ## The dashboard is shared with the extension

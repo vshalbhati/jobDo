@@ -66,7 +66,7 @@ app.use((err, _req, res, _next) => {
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(config.port, config.host, () => {
-    console.log('Easy Apply API on http://' + config.host + ':' + config.port);
+    console.log('jobDo API on http://' + config.host + ':' + config.port);
     console.log('  providers     ' + config.providers);
     console.log('  cors origins  ' + (config.corsOrigins.join(', ') || '(none - browser calls will be blocked)'));
     console.log('  cookies       SameSite=' + config.cookieSameSite + (config.cookieSecure ? '; Secure' : ''));

@@ -508,7 +508,7 @@ $('exportCsv').onclick = async () => {
   const blob = new Blob([[head.join(','), ...body].join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'easy-apply-history-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.download = 'jobdo-history-' + new Date().toISOString().slice(0, 10) + '.csv';
   a.click();
   URL.revokeObjectURL(a.href);
 };

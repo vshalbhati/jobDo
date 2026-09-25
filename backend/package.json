@@ -1,9 +1,9 @@
 {
-  "name": "easy-apply-backend",
+  "name": "jobdo-backend",
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "API for the LinkedIn Easy Apply Autopilot: Supabase-backed accounts, application history and resume storage.",
+  "description": "API for jobDo: Supabase-backed accounts, application history and resume storage.",
   "engines": {
     "node": ">=20.6"
   },

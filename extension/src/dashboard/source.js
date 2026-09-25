@@ -18,7 +18,7 @@ async function extStorage() {
 }
 
 // Set by config.js at deploy time; empty means "same origin as this page".
-const API = (typeof window !== 'undefined' && window.EASY_APPLY_API) || '';
+const API = (typeof window !== 'undefined' && window.JOBDO_API) || '';
 
 function toLogin() {
   location.href = '../index.html?next=' + encodeURIComponent(location.pathname);

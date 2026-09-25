@@ -1,4 +1,4 @@
-# Job Apply Autopilot
+# jobDo
 
 Reads your resume, finds matching jobs on **LinkedIn, Naukri and Indeed**, and
 applies to them one at a time while you watch — through each board's own quick

@@ -65,7 +65,7 @@ window.LEA = window.LEA || {};
     });
     const txt = document.createElement('div');
     txt.style.flex = '1';
-    txt.innerHTML = '<b>Easy Apply Autopilot filled this in for you.</b> ';
+    txt.innerHTML = '<b>jobDo filled this in for you.</b> ';
     txt.appendChild(document.createTextNode(reason + (job && job.title ? '  —  ' + job.title + ' at ' + job.company : '')));
     const close = document.createElement('button');
     close.textContent = 'Dismiss';

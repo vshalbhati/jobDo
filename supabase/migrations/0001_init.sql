@@ -1,4 +1,4 @@
--- Schema for the Easy Apply app.
+-- Schema for the jobDo app.
 --
 -- Isolation between accounts is enforced by Row Level Security in Postgres,
 -- not by the API layer. Every policy compares auth.uid() to the row's user_id,

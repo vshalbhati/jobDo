@@ -1,9 +1,9 @@
 {
-  "name": "easy-apply-frontend",
+  "name": "jobdo-frontend",
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Web dashboard for the LinkedIn Easy Apply Autopilot. Static files; deploy public/ to any static host.",
+  "description": "Web dashboard for jobDo. Static files; deploy public/ to any static host.",
   "scripts": {
     "dev": "node serve.js",
     "build": "node -e \"console.log('Nothing to build - deploy the public/ directory as-is.')\""
