@@ -76,7 +76,9 @@ Then run the backend with `RANKER_URL=http://127.0.0.1:8000 RANKER_SECRET=dev`.
 A second Vercel project, next to the backend's:
 
 1. Vercel → **Add New → Project** → the same GitHub repo.
-2. **Root Directory:** `ranker`. Framework preset: **Other** (or FastAPI if offered).
+2. **Root Directory:** `ranker`. Framework preset: **FastAPI**. Vercel finds the
+   app in `api/index.py` and sends every path to it, so no `vercel.json` is needed.
+   A rewrite there would break it: the app would see every request as `/api/index`.
 3. **Environment variables:**
    - `RANKER_SECRET` = a long random string, e.g. from
      `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.

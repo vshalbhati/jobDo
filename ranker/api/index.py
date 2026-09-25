@@ -14,7 +14,8 @@ from typing import List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import APIRouter, FastAPI, Header, HTTPException  # noqa: E402
+from fastapi import APIRouter, FastAPI, Header, HTTPException, Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 from jobdo_ranker import __version__, rank_jobs  # noqa: E402
@@ -79,3 +80,14 @@ app = FastAPI(title="jobDo ranker", version=__version__, docs_url=None, redoc_ur
 # Mounted twice so it answers whether or not the platform strips /api.
 app.include_router(router)
 app.include_router(router, prefix="/api")
+
+
+# Says which path actually arrived: when a platform rewrites paths behind the
+# app's back, this is the only way to see it from outside.
+@app.exception_handler(404)
+async def not_found(request: Request, _exc):
+    return JSONResponse(status_code=404, content={
+        "detail": "Not Found",
+        "path": request.url.path,
+        "routes": ["/health", "/rank", "/api/health", "/api/rank"],
+    })
