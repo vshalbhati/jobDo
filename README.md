@@ -20,11 +20,25 @@ trust it. The account risk is yours.
 |---|---|---|
 | [`extension/`](extension/README.md) | Chrome extension (Manifest V3) | The part that actually applies, on all three boards |
 | [`frontend/`](frontend/README.md) | Static web app | Sign in and see your history anywhere |
-| [`backend/`](backend/README.md) | Express API | Accounts, history, resume storage |
+| [`backend/`](backend/README.md) | Express API | Accounts, history, resume storage, your ranking threshold |
+| [`ranker/`](ranker/README.md) | Python service | Scores each posting against your resume and decides apply or skip |
 | [`supabase/`](supabase/README.md) | Postgres schema + RLS + storage bucket | The database |
 
-The extension works entirely on its own. The other three are only needed if you
-want the history to outlive an uninstall and be readable from another machine.
+The extension works entirely on its own, with a simpler built-in keyword
+scorer. The rest are needed for the ranker, and for the history to outlive an
+uninstall and be readable from another machine.
+
+## How a run chooses jobs
+
+Every run, manual or scheduled, reads the full description of about three times
+as many postings as it is allowed to apply to, has the ranker score each one,
+and then applies to the highest scores first, down to your threshold. The
+threshold is stored on your account and can be changed from the web dashboard
+or the extension's Settings.
+
+Once a day (2 PM by default) a run starts by itself on postings from the last 24
+hours, newest first, because early applicants get seen first. If Chrome is closed
+at 2 PM, it runs as soon as Chrome opens, any time before midnight.
 
 ## Getting started
 
@@ -102,6 +116,14 @@ deploy independently:
 - **backend** → any Node host. `npm install` / `npm start`, plus the
   environment variables in `.env.example`. Point `CORS_ORIGINS` at the frontend
   and set `TRUST_PROXY=true`.
+- **ranker** → a Python host; on Vercel, a second project with root directory
+  `ranker`. See [ranker/README.md](ranker/README.md). The backend then needs
+  `RANKER_URL` and `RANKER_SECRET`.
+- **Upstash Redis** (free tier is enough to start) → one database, whose REST
+  URL and token go into **both** the backend and the ranker as
+  `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`. The ranker caches
+  parsed postings in it; the backend keeps login rate limits in it. Both work
+  without it, just less well.
 - **the extension** is loaded unpacked, or zipped for the Chrome Web Store.
 
 Because the two ends are then on different sites, the backend also needs

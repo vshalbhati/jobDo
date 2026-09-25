@@ -1,4 +1,5 @@
 import { getConfig, setConfig, getRun, getLog, clearLog } from '../shared/storage.js';
+import { describeNextRun } from '../shared/schedule.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,7 +17,8 @@ async function render() {
 
   const today = new Date().toDateString();
   const used = cfg.stats.day === today ? cfg.stats.appliedToday : 0;
-  $('today').textContent = 'Today: ' + used + ' of ' + cfg.safety.maxPerDay + ' · this run stops at ' + cfg.safety.maxPerRun;
+  $('today').textContent = 'Today: ' + used + ' of ' + cfg.safety.maxPerDay + ' · this run stops at ' + cfg.safety.maxPerRun +
+    ' · ' + describeNextRun(cfg);
 
   $('dryRun').checked = !!cfg.safety.dryRun;
   $('review').checked = !!cfg.safety.reviewBeforeSubmit;

@@ -5,6 +5,7 @@ import {
   auth, requireAuth, setAuthCookies, clearAuthCookies, accessTokenFrom, refreshTokenFrom,
   rateLimit, clearRateLimit, validateEmail, validatePassword
 } from './auth.js';
+import { rankerConfigured, rankJobs } from './ranker.js';
 
 export const api = express.Router();
 
@@ -44,7 +45,7 @@ api.post('/auth/login', async (req, res, next) => {
     if (!email) return res.status(400).json({ error: 'Enter your email address.' });
 
     const key = (req.ip || 'unknown') + '|' + email;
-    const limit = rateLimit(key);
+    const limit = await rateLimit(key);
     if (!limit.allowed) {
       res.set('Retry-After', String(limit.retryAfter));
       return res.status(429).json({
@@ -69,7 +70,7 @@ api.post('/auth/login', async (req, res, next) => {
       // For anything else, never say which half was wrong.
       return res.status(401).json({ error: 'Wrong email or password.' });
     }
-    clearRateLimit(key);
+    await clearRateLimit(key);
     return sendSession(req, res, result.user, result.session);
   } catch (e) { next(e); }
 });
@@ -246,6 +247,88 @@ api.delete('/resumes/:id', requireAuth, async (req, res, next) => {
     await req.repo.resumes.remove(req.params.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
+});
+
+// ------------------------------------------------------------------ settings
+
+// Per-account settings, shared by the extension and the web dashboard.
+api.get('/settings', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await req.repo.settings.get());
+  } catch (e) { next(e); }
+});
+
+api.put('/settings', requireAuth, async (req, res, next) => {
+  try {
+    const patch = {};
+    if (req.body.minScore !== undefined) {
+      const v = req.body.minScore;
+      // Number(null) and Number('') are 0, which is not what anyone meant.
+      const n = typeof v === 'number' || (typeof v === 'string' && v.trim() !== '') ? Number(v) : NaN;
+      if (!Number.isInteger(n) || n < 0 || n > 100) {
+        return res.status(400).json({ error: 'minScore must be a whole number from 0 to 100.' });
+      }
+      patch.minScore = n;
+    }
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update.' });
+    res.json(await req.repo.settings.update(patch));
+  } catch (e) { next(e); }
+});
+
+// ------------------------------------------------------------------- ranking
+
+const MAX_RANK_BATCH = 50;
+
+// Scores a batch of postings against the caller's resume, using the caller's
+// threshold. The extension sends its current profile and resume text, which
+// may carry hand corrections the stored copy lacks; the stored resume fills
+// in whatever it leaves out.
+api.post('/rank', requireAuth, async (req, res, next) => {
+  try {
+    if (!rankerConfigured()) {
+      return res.status(503).json({ error: 'Ranking is not set up on this server (RANKER_URL is empty).' });
+    }
+    const jobs = Array.isArray(req.body.jobs) ? req.body.jobs : null;
+    if (!jobs || !jobs.length) return res.status(400).json({ error: 'Expected { jobs: [...] }.' });
+    if (jobs.length > MAX_RANK_BATCH) {
+      return res.status(413).json({ error: 'Send at most ' + MAX_RANK_BATCH + ' jobs per request.' });
+    }
+
+    let resumeText = typeof req.body.resumeText === 'string' ? req.body.resumeText : '';
+    let profile = isPlainObject(req.body.profile) ? req.body.profile : null;
+    if (!resumeText || !profile) {
+      const stored = await req.repo.resumes.current();
+      if (stored) {
+        resumeText = resumeText || stored.text_content || '';
+        profile = profile || stored.profile || null;
+      }
+    }
+    if (!resumeText && !profile) {
+      return res.status(409).json({ error: 'There is no resume on this account yet. Upload one first.' });
+    }
+
+    const { minScore } = await req.repo.settings.get();
+    const out = await rankJobs({
+      jobs: jobs.map(cleanJob),
+      resumeText: resumeText.slice(0, 100000),
+      profile: profile || {},
+      threshold: minScore
+    });
+    res.json({ threshold: minScore, version: out.version, results: out.results || [] });
+  } catch (e) {
+    if (e.expose) return res.status(e.status || 502).json({ error: e.message });
+    next(e);
+  }
+});
+
+const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const clip = (v, n) => String(v === undefined || v === null ? '' : v).slice(0, n);
+const cleanJob = (j) => ({
+  id: clip(j && j.id, 200),
+  title: clip(j && j.title, 400),
+  company: clip(j && j.company, 300),
+  location: clip(j && j.location, 300),
+  description: clip(j && j.description, 40000)
 });
 
 const MIMES = new Set([

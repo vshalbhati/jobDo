@@ -9,8 +9,73 @@ process.env.PROVIDERS = 'memory';
 process.env.CORS_ORIGINS = 'https://app.example.com,http://localhost:4173';
 process.env.ALLOW_SIGNUP = 'true';
 
+// A stand-in for the Python ranker, so the suite needs neither Python nor the
+// network. It scores a job 80 if its title contains "good", else 20, and
+// remembers the last request so tests can see what the backend forwarded.
+import http from 'node:http';
+const stubRanker = { last: null, fail: false };
+const rankerServer = http.createServer((q, s) => {
+  let raw = '';
+  q.on('data', (c) => { raw += c; });
+  q.on('end', () => {
+    if (stubRanker.fail) { s.writeHead(500).end('boom'); return; }
+    if (q.headers['x-ranker-secret'] !== 'test-secret') { s.writeHead(401).end('{}'); return; }
+    const body = JSON.parse(raw);
+    stubRanker.last = body;
+    const results = body.jobs.map((j) => {
+      const score = /good/.test(j.title) ? 80 : 20;
+      return { id: j.id, score, verdict: score >= body.threshold ? 'apply' : 'skip', reasons: [] };
+    });
+    s.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ version: 'stub', results }));
+  });
+});
+await new Promise((r) => rankerServer.listen(0, '127.0.0.1', r));
+process.env.RANKER_URL = 'http://127.0.0.1:' + rankerServer.address().port;
+process.env.RANKER_SECRET = 'test-secret';
+
+// A stand-in for Upstash's REST API: POST /pipeline with a JSON array of
+// commands, answered with [{result}] or [{error}]. Only the commands the
+// backend uses are implemented.
+const fakeRedis = { store: new Map(), fail: false, requests: 0 };
+const redisServer = http.createServer((q, s) => {
+  let raw = '';
+  q.on('data', (c) => { raw += c; });
+  q.on('end', () => {
+    fakeRedis.requests++;
+    if (fakeRedis.fail) { s.writeHead(503).end('{"error":"down"}'); return; }
+    if (q.url !== '/pipeline' || q.headers.authorization !== 'Bearer test-redis-token') {
+      s.writeHead(401).end('{"error":"Unauthorized"}'); return;
+    }
+    const now = Date.now();
+    const live = (k) => { const e = fakeRedis.store.get(k); if (e && e.exp && e.exp <= now) { fakeRedis.store.delete(k); return null; } return e || null; };
+    const out = JSON.parse(raw).map(([cmd, ...a]) => {
+      switch (cmd.toUpperCase()) {
+        case 'PING': return { result: 'PONG' };
+        case 'SET': {
+          const [k, v, ...opt] = a;
+          const up = opt.map((o) => o.toUpperCase());
+          if (up.includes('NX') && live(k)) return { result: null };
+          const ex = up.indexOf('EX');
+          fakeRedis.store.set(k, { v, exp: ex >= 0 ? now + Number(opt[ex + 1]) * 1000 : 0 });
+          return { result: 'OK' };
+        }
+        case 'INCR': { const e = live(a[0]) || { v: '0', exp: 0 }; e.v = String(Number(e.v) + 1); fakeRedis.store.set(a[0], e); return { result: Number(e.v) }; }
+        case 'TTL': { const e = live(a[0]); return { result: !e ? -2 : e.exp ? Math.ceil((e.exp - now) / 1000) : -1 }; }
+        case 'DEL': return { result: fakeRedis.store.delete(a[0]) ? 1 : 0 };
+        default: return { error: 'ERR unknown command ' + cmd };
+      }
+    });
+    s.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(out));
+  });
+});
+await new Promise((r) => redisServer.listen(0, '127.0.0.1', r));
+process.env.UPSTASH_REDIS_REST_URL = 'http://127.0.0.1:' + redisServer.address().port;
+process.env.UPSTASH_REDIS_REST_TOKEN = 'test-redis-token';
+
 const { app } = await import('../src/server.js');
-const { resetRateLimits } = await import('../src/auth.js');
+const auth = await import('../src/auth.js');
+// Clears both the shared (Redis) and the per-instance counts.
+const resetRateLimits = () => { auth.resetRateLimits(); fakeRedis.store.clear(); };
 const { setRequireConfirmation } = await import('../src/providers.memory.js');
 
 let pass = 0, fail = 0;
@@ -251,6 +316,64 @@ ok("clearing one account's history leaves the other intact",
 r = await req('GET', '/api/applications', { token: tokenB });
 ok('  and does clear the account that asked', r.data.records.length === 0, r.data.records.length);
 
+section('settings (the ranking threshold lives on the account)');
+r = await req('GET', '/api/settings', { token: refreshedToken });
+ok('an account starts at the default threshold', r.status === 200 && r.data.minScore === 60, r.data);
+r = await req('PUT', '/api/settings', { token: refreshedToken, body: { minScore: 75 } });
+ok('the threshold can be changed', r.status === 200 && r.data.minScore === 75, r.data);
+r = await req('GET', '/api/settings', { token: refreshedToken });
+ok('  and the change is stored', r.data.minScore === 75, r.data);
+for (const bad of [150, -1, 12.5, 'abc', null]) {
+  r = await req('PUT', '/api/settings', { token: refreshedToken, body: { minScore: bad } });
+  ok('rejects minScore ' + JSON.stringify(bad), r.status === 400, r.status);
+}
+r = await req('PUT', '/api/settings', { token: refreshedToken, body: {} });
+ok('an empty update is rejected', r.status === 400, r.status);
+r = await req('GET', '/api/settings', { token: tokenB });
+ok("one account's threshold does not leak into another's", r.data.minScore === 60, r.data);
+r = await req('PUT', '/api/settings', { body: { minScore: 10 } });
+ok('changing settings needs a sign-in', r.status === 401, r.status);
+
+section('ranking');
+await req('POST', '/api/resume', {
+  token: refreshedToken,
+  body: { filename: 'cv.pdf', mime: 'application/pdf', data: Buffer.from('%PDF-1.4 ranking resume').toString('base64'),
+    text: 'Software engineer, 4 years of React', profile: { defaultYears: 3 } }
+});
+const jobsToRank = [
+  { id: 'j1', title: 'A good job', description: 'React' },
+  { id: 'j2', title: 'A poor job', description: 'COBOL' }
+];
+r = await req('POST', '/api/rank', { body: { jobs: jobsToRank } });
+ok('ranking needs a sign-in', r.status === 401, r.status);
+r = await req('POST', '/api/rank', { token: refreshedToken, body: { jobs: jobsToRank } });
+ok('ranks a batch', r.status === 200 && r.data.results.length === 2, r.data);
+ok("  using the account's threshold", r.data.threshold === 75 && stubRanker.last.threshold === 75, stubRanker.last && stubRanker.last.threshold);
+ok('  and returns the verdicts', r.data.results[0].verdict === 'apply' && r.data.results[1].verdict === 'skip', r.data.results);
+ok('  filling in the resume from the stored copy', !!stubRanker.last.candidate.resume_text, stubRanker.last.candidate);
+ok('  signed with the shared secret (the stub rejects anything else)', r.status === 200);
+
+r = await req('POST', '/api/rank', { token: refreshedToken, body: { jobs: jobsToRank, resumeText: 'fresh text', profile: { defaultYears: 4 } } });
+ok('a resume and profile sent with the request win over the stored ones',
+  stubRanker.last.candidate.resume_text === 'fresh text' && stubRanker.last.candidate.profile.defaultYears === 4, stubRanker.last.candidate);
+
+r = await req('POST', '/api/rank', { token: refreshedToken, body: { jobs: [] } });
+ok('an empty batch is rejected', r.status === 400, r.status);
+r = await req('POST', '/api/rank', { token: refreshedToken, body: { jobs: Array.from({ length: 51 }, (_, i) => ({ id: String(i) })) } });
+ok('an oversized batch is rejected', r.status === 413, r.status);
+r = await req('POST', '/api/rank', { token: refreshedToken, body: { jobs: [{ id: 'x', title: 't', description: 'd'.repeat(60000) }] } });
+ok('an overlong description is clipped, not refused', r.status === 200 && stubRanker.last.jobs[0].description.length === 40000, r.status);
+r = await req('POST', '/api/rank', { token: tokenB, body: { jobs: jobsToRank } });
+ok('an account with no resume is told to upload one', r.status === 409, { status: r.status, data: r.data });
+
+stubRanker.fail = true;
+r = await req('POST', '/api/rank', { token: refreshedToken, body: { jobs: jobsToRank } });
+ok('a broken ranker is reported as 502 with a readable message', r.status === 502 && /ranking service/i.test(r.data.error), { status: r.status, data: r.data });
+stubRanker.fail = false;
+
+r = await req('OPTIONS', '/api/settings', { origin: 'https://app.example.com' });
+ok('preflight allows PUT', /PUT/.test(r.headers.get('access-control-allow-methods') || ''), r.headers.get('access-control-allow-methods'));
+
 section('logout');
 r = await req('POST', '/api/auth/logout', { token: tokenB });
 ok('logout succeeds', r.status === 200);
@@ -309,6 +432,7 @@ ok('preflight is answered', r.status === 204 && !!r.headers.get('access-control-
 section('misc');
 r = await req('GET', '/api/health');
 ok('health reports which providers are live', r.data.ok === true && r.data.providers === 'memory', r.data);
+ok('health reports whether ranking is set up', r.data.ranking === true, r.data);
 r = await req('GET', '/api/nope');
 ok('unknown route -> 404 json', r.status === 404 && !!r.data.error, r.status);
 
@@ -317,15 +441,51 @@ const badJson = await fetch(base + '/api/auth/login', {
 });
 ok('malformed JSON -> 400, not a stack trace', badJson.status === 400, badJson.status);
 
-section('rate limiting');
+section('rate limiting (shared through Redis)');
+r = await req('GET', '/api/health');
+ok('health confirms Redis is answering', r.data.rateLimits === 'redis', r.data.rateLimits);
+
+resetRateLimits();
+const failLogin = (email) => req('POST', '/api/auth/login', { body: { email, password: 'wrong-password-x' } });
 let limited = false;
 for (let i = 0; i < 12; i++) {
-  const res = await req('POST', '/api/auth/login', { body: { email: 'ratelimit@example.com', password: 'wrong-password-x' } });
-  if (res.status === 429) { limited = true; break; }
+  const res = await failLogin('ratelimit@example.com');
+  if (res.status === 429) { limited = true; ok('  and says when to retry', Number(res.headers.get('retry-after')) > 0, res.headers.get('retry-after')); break; }
 }
 ok('repeated failed logins get rate limited', limited);
+const keys = [...fakeRedis.store.keys()];
+ok('the count lives in Redis, so every instance sees it', keys.length === 1 && keys[0].startsWith('jobdo:rl:'), keys);
+ok('  under a hashed key, never the email address', !keys.some((k) => /ratelimit|example/.test(k)), keys);
+ok('  and it expires with the window', fakeRedis.store.get(keys[0]).exp > Date.now(), fakeRedis.store.get(keys[0]));
+
+// A second server instance shares nothing in memory: simulate it by wiping
+// this instance's own counts. The limit must still hold.
+auth.resetRateLimits();
+r = await failLogin('ratelimit@example.com');
+ok('the limit survives an instance that has never seen these attempts', r.status === 429, r.status);
+
+resetRateLimits();
+await req('POST', '/api/auth/register', { body: { email: 'limited-then-ok@example.com', password: PASSWORD, client: 'extension' } });
+for (let i = 0; i < 3; i++) await failLogin('limited-then-ok@example.com');
+r = await req('POST', '/api/auth/login', { body: { email: 'limited-then-ok@example.com', password: PASSWORD, client: 'extension' } });
+ok('a successful login clears the count in Redis', r.status === 200 && fakeRedis.store.size === 0, { status: r.status, keys: fakeRedis.store.size });
+
+resetRateLimits();
+fakeRedis.fail = true;
+r = await req('GET', '/api/health');
+ok('health reports Redis being down', /^memory \(Redis unreachable/.test(r.data.rateLimits), r.data.rateLimits);
+limited = false;
+for (let i = 0; i < 12; i++) {
+  const res = await failLogin('redis-down@example.com');
+  if (res.status === 429) { limited = true; break; }
+}
+ok('with Redis down, logins still work and are still limited per instance', limited);
+fakeRedis.fail = false;
+resetRateLimits();
 
 console.log('');
 console.log(pass + ' passed, ' + fail + ' failed');
 server.close();
+rankerServer.close();
+redisServer.close();
 process.exit(fail ? 1 : 0);

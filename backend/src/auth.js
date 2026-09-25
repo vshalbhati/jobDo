@@ -1,5 +1,7 @@
 // Provider selection, cookies and the request guard.
+import crypto from 'node:crypto';
 import { config } from './config.js';
+import { pipeline, redisConfigured } from './redis.js';
 
 const providers = config.providers === 'memory'
   ? await import('./providers.memory.js')
@@ -85,7 +87,28 @@ const attempts = new Map();
 const WINDOW = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 10;
 
-export function rateLimit(key) {
+// On serverless every instance has its own memory, so an in-memory count
+// lets an attacker multiply the limit by however many instances are warm.
+// With Redis configured the count is shared; if Redis is down, each instance
+// still enforces its own count rather than none.
+export async function rateLimit(key) {
+  if (redisConfigured()) {
+    try {
+      const k = redisKey(key);
+      const [, count, ttl] = await pipeline([
+        ['SET', k, '0', 'EX', WINDOW / 1000, 'NX'],
+        ['INCR', k],
+        ['TTL', k]
+      ]);
+      return { allowed: count <= MAX_ATTEMPTS, retryAfter: ttl > 0 ? ttl : WINDOW / 1000 };
+    } catch (e) {
+      console.error('Rate limit store unavailable, counting in memory: ' + e.message);
+    }
+  }
+  return memoryRateLimit(key);
+}
+
+function memoryRateLimit(key) {
   const now = Date.now();
   const hits = (attempts.get(key) || []).filter((t) => now - t < WINDOW);
   hits.push(now);
@@ -96,8 +119,15 @@ export function rateLimit(key) {
   return { allowed: hits.length <= MAX_ATTEMPTS, retryAfter: Math.ceil((WINDOW - (now - hits[0])) / 1000) };
 }
 
-export const clearRateLimit = (key) => attempts.delete(key);
+export async function clearRateLimit(key) {
+  attempts.delete(key);
+  if (redisConfigured()) await pipeline([['DEL', redisKey(key)]]).catch(() => {});
+}
+
 export const resetRateLimits = () => attempts.clear();
+
+// The key is "ip|email"; hashed so Redis never holds anyone's address.
+const redisKey = (key) => 'jobdo:rl:' + crypto.createHash('sha256').update(key).digest('hex').slice(0, 32);
 
 // ---------------------------------------------------------------- validation
 

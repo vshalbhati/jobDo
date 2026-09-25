@@ -29,6 +29,22 @@ export const config = {
   // needs no Supabase project and no network.
   providers: (process.env.PROVIDERS || (process.env.NODE_ENV === 'test' ? 'memory' : 'supabase')).toLowerCase(),
 
+  // The Python ranking service in ranker/. Optional: without it /api/rank
+  // answers 503 and the extension falls back to its own keyword scorer.
+  rankerUrl: (process.env.RANKER_URL || '').trim().replace(/\/+$/, ''),
+  rankerSecret: process.env.RANKER_SECRET || '',
+  rankerTimeoutMs: Number(process.env.RANKER_TIMEOUT_MS) || 25000,
+
+  // Ranking threshold for an account that has never set one.
+  defaultMinScore: 60,
+
+  // Upstash Redis (REST), shared by every serverless instance: login rate
+  // limits live here. Optional; without it each instance counts on its own.
+  // The KV_* names are what Vercel's Upstash integration sets.
+  redisUrl: (process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || '').trim().replace(/\/+$/, ''),
+  redisToken: (process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '').trim(),
+  redisTimeoutMs: Number(process.env.REDIS_TIMEOUT_MS) || 1500,
+
   maxResumeBytes: 8 * 1024 * 1024,
   maxBatch: 2000
 };
@@ -44,6 +60,18 @@ export function validateConfig() {
   }
   if (config.cookieSameSite === 'none' && !config.cookieSecure) {
     problems.push('COOKIE_SAMESITE=none requires COOKIE_SECURE=true (browsers reject it otherwise).');
+  }
+  if (config.rankerUrl && !/^https?:\/\//.test(config.rankerUrl)) {
+    problems.push('RANKER_URL must start with https://');
+  }
+  if (config.rankerUrl && !config.rankerSecret) {
+    problems.push('RANKER_SECRET must be set when RANKER_URL is (the same value as on the ranker).');
+  }
+  if (config.redisUrl && !/^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(config.redisUrl)) {
+    problems.push('UPSTASH_REDIS_REST_URL must start with https:// (use the REST URL, not the redis:// one).');
+  }
+  if (config.redisUrl && !config.redisToken) {
+    problems.push('UPSTASH_REDIS_REST_TOKEN must be set when UPSTASH_REDIS_REST_URL is.');
   }
   if (!['lax', 'none', 'strict'].includes(config.cookieSameSite)) {
     problems.push('COOKIE_SAMESITE must be lax, none or strict.');

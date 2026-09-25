@@ -3,7 +3,8 @@ import { DEFAULT_RULES } from '../shared/defaults.js';
 import { parseResumeText, searchKeywordsFrom } from '../shared/resume.js';
 import { SITE_LIST, SITES } from '../shared/sites.js';
 import { ATS_LIST } from '../shared/ats.js';
-import { authenticate, whoAmI, pushAll, pushResume, normalizeUrl, originOf } from '../shared/sync.js';
+import { authenticate, whoAmI, pushAll, pushResume, normalizeUrl, originOf, isConnected, fetchSettings, saveSettings } from '../shared/sync.js';
+import { describeNextRun } from '../shared/schedule.js';
 import { extractText, fileToDataUrl } from './extract.js';
 
 const $ = (id) => document.getElementById(id);
@@ -41,6 +42,11 @@ async function load() {
 
   $('m-minScore').value = cfg.match.minScore;
   $('minScoreVal').textContent = cfg.match.minScore;
+  $('r-poolFactor').value = cfg.rank.poolFactor;
+  $('r-maxPool').value = cfg.rank.maxPool;
+  $('sc-enabled').checked = !!cfg.schedule.enabled;
+  $('sc-time').value = cfg.schedule.time || '14:00';
+  renderSchedule();
   $('m-titleInclude').value = (cfg.match.titleInclude || []).join('\n');
   $('m-titleExclude').value = (cfg.match.titleExclude || []).join('\n');
   $('m-companyBlocklist').value = (cfg.match.companyBlocklist || []).join('\n');
@@ -69,6 +75,7 @@ async function load() {
   renderAtsList();
   await renderPermission();
   await renderSync();
+  await loadThreshold();
   renderRules();
   renderUnknowns();
   renderUrlPreview();
@@ -169,6 +176,14 @@ async function save() {
       companyBlocklist: lines($('m-companyBlocklist').value),
       descriptionExclude: lines($('m-descriptionExclude').value)
     },
+    rank: {
+      poolFactor: Math.max(1, Number($('r-poolFactor').value) || 3),
+      maxPool: Math.max(5, Math.round(Number($('r-maxPool').value) || 150))
+    },
+    schedule: {
+      enabled: $('sc-enabled').checked,
+      time: /^\d{1,2}:\d{2}$/.test($('sc-time').value) ? $('sc-time').value : '14:00'
+    },
     safety: {
       dryRun: $('f-dryRun').checked,
       reviewBeforeSubmit: $('f-reviewBeforeSubmit').checked,
@@ -195,9 +210,55 @@ async function save() {
   if (patch.safety.maxDelayMs < patch.safety.minDelayMs) {
     patch.safety.maxDelayMs = patch.safety.minDelayMs + 5000;
   }
+  const thresholdChanged = patch.match.minScore !== cfg.match.minScore;
   cfg = await setConfig(patch);
   flash('Saved.');
   renderUrlPreview();
+  renderSchedule();
+  if (thresholdChanged) await pushThreshold(patch.match.minScore);
+}
+
+// ------------------------------------------------------- threshold & schedule
+
+// The threshold belongs to the account, so the web dashboard and this page
+// always show the same number. The local copy is only a cache.
+async function loadThreshold() {
+  if (!isConnected(cfg)) {
+    thresholdStatus('Stored in this browser only. Connect an account (section 8) to rank with the server and keep this in sync with the web dashboard.');
+    return;
+  }
+  try {
+    const s = await fetchSettings(cfg);
+    if (s.minScore !== cfg.match.minScore) cfg = await setConfig({ match: { minScore: s.minScore } });
+    $('m-minScore').value = s.minScore;
+    $('minScoreVal').textContent = s.minScore;
+    thresholdStatus('Saved on your jobDo account - the web dashboard uses the same value.', 'ok');
+  } catch (e) {
+    thresholdStatus('Could not load the threshold from your account: ' + e.message, 'err');
+  }
+}
+
+async function pushThreshold(minScore) {
+  if (!isConnected(cfg)) return;
+  try {
+    await saveSettings(cfg, { minScore });
+    thresholdStatus('Saved on your jobDo account - the web dashboard uses the same value.', 'ok');
+  } catch (e) {
+    thresholdStatus('Saved here, but not on your account: ' + e.message, 'err');
+  }
+}
+
+function thresholdStatus(msg, kind) {
+  $('thresholdStatus').className = 'status-line' + (kind ? ' ' + kind : '');
+  $('thresholdStatus').textContent = msg;
+}
+
+function renderSchedule() {
+  const text = describeNextRun(cfg);
+  $('scheduleStatus').className = 'status-line' + (cfg.schedule.enabled ? ' ok' : '');
+  $('scheduleStatus').textContent = cfg.schedule.enabled
+    ? text[0].toUpperCase() + text.slice(1) + '.'
+    : 'The daily run is off. Runs only start when you press Start.';
 }
 
 function flash(msg) {

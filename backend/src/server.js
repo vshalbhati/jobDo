@@ -1,6 +1,8 @@
 import express from 'express';
 import { config, validateConfig } from './config.js';
 import { api } from './routes.js';
+import { rankerConfigured } from './ranker.js';
+import { pipeline, redisConfigured } from './redis.js';
 
 const problems = validateConfig();
 if (problems.length) {
@@ -34,7 +36,7 @@ app.use((req, res, next) => {
     res.set('Access-Control-Allow-Origin', origin);
     res.set('Access-Control-Allow-Credentials', 'true');
     res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.set('Access-Control-Max-Age', '600');
     res.set('Vary', 'Origin');
   }
@@ -42,11 +44,25 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (_req, res) => res.json({
+app.get('/api/health', async (_req, res) => res.json({
   ok: true,
   providers: config.providers,
-  signupOpen: config.allowSignup
+  signupOpen: config.allowSignup,
+  ranking: rankerConfigured(),
+  rateLimits: await rateLimitStore()
 }));
+
+// Pings Redis rather than trusting the configuration, so a wrong token shows
+// up here instead of silently falling back to per-instance counting.
+async function rateLimitStore() {
+  if (!redisConfigured()) return 'memory';
+  try {
+    const [pong] = await pipeline([['PING']]);
+    return pong === 'PONG' ? 'redis' : 'memory (unexpected Redis reply)';
+  } catch (e) {
+    return 'memory (Redis unreachable: ' + e.message + ')';
+  }
+}
 
 app.use('/api', api);
 

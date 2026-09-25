@@ -4,37 +4,11 @@ import { hasTerm } from './resume.js';
 // which is written into the log so a bad threshold is easy to diagnose.
 export function scoreJob(job, profile, matchCfg) {
   const title = (job.title || '').toLowerCase();
-  const company = (job.company || '').toLowerCase();
   const desc = (job.description || '').toLowerCase();
   const reasons = [];
 
-  for (const bad of (matchCfg.companyBlocklist || [])) {
-    if (bad && company.includes(bad.toLowerCase())) {
-      return { ok: false, score: 0, reason: 'company blocklisted: ' + bad };
-    }
-  }
-  for (const bad of (matchCfg.titleExclude || [])) {
-    if (bad && title.includes(bad.toLowerCase())) {
-      return { ok: false, score: 0, reason: 'title excluded: ' + bad };
-    }
-  }
-  for (const bad of (matchCfg.descriptionExclude || [])) {
-    if (bad && desc && desc.includes(bad.toLowerCase())) {
-      return { ok: false, score: 0, reason: 'description excluded: ' + bad };
-    }
-  }
-  const includes = (matchCfg.titleInclude || []).filter(Boolean);
-  if (includes.length && !includes.some((w) => title.includes(w.toLowerCase()))) {
-    return { ok: false, score: 0, reason: 'title missing all of: ' + includes.join(', ') };
-  }
-
-  // An internship posting against a mid-career resume is never worth an
-  // application, however well the keywords line up, so it is a hard skip
-  // rather than a score penalty.
-  const years = profile.defaultYears || 0;
-  if (years >= 5 && /\b(intern|internship|trainee|fresher|apprentice)\b/.test(title)) {
-    return { ok: false, score: 0, reason: 'entry-level posting vs ' + years + ' years of experience' };
-  }
+  const skip = hardSkip(job, profile, matchCfg);
+  if (skip) return { ok: false, score: 0, reason: skip };
 
   const titleScore = scoreTitle(title, profile, reasons);
   const skillScore = desc ? scoreSkills(desc, profile, reasons) : null;
@@ -51,6 +25,38 @@ export function scoreJob(job, profile, matchCfg) {
     score,
     reason: reasons.join('; ') + ' => ' + score + (score >= min ? '' : ' (below ' + min + ')')
   };
+}
+
+// Your own rules, which no score can override: blocked companies, excluded
+// title and description words, required title words. Returns why the job is
+// ruled out, or null. The ranker never sees a job that fails these.
+export function hardSkip(job, profile, matchCfg) {
+  const title = (job.title || '').toLowerCase();
+  const company = (job.company || '').toLowerCase();
+  const desc = (job.description || '').toLowerCase();
+
+  for (const bad of (matchCfg.companyBlocklist || [])) {
+    if (bad && company.includes(bad.toLowerCase())) return 'company blocklisted: ' + bad;
+  }
+  for (const bad of (matchCfg.titleExclude || [])) {
+    if (bad && title.includes(bad.toLowerCase())) return 'title excluded: ' + bad;
+  }
+  for (const bad of (matchCfg.descriptionExclude || [])) {
+    if (bad && desc && desc.includes(bad.toLowerCase())) return 'description excluded: ' + bad;
+  }
+  const includes = (matchCfg.titleInclude || []).filter(Boolean);
+  if (includes.length && !includes.some((w) => title.includes(w.toLowerCase()))) {
+    return 'title missing all of: ' + includes.join(', ');
+  }
+
+  // An internship posting against a mid-career resume is never worth an
+  // application, however well the keywords line up, so it is a hard skip
+  // rather than a score penalty.
+  const years = profile.defaultYears || 0;
+  if (years >= 5 && /\b(intern|internship|trainee|fresher|apprentice)\b/.test(title)) {
+    return 'entry-level posting vs ' + years + ' years of experience';
+  }
+  return null;
 }
 
 function scoreTitle(title, profile, reasons) {

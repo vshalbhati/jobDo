@@ -203,9 +203,34 @@ export function repoFor(user, accessToken) {
         if (error) throw fail(error, 'Could not delete the resume.');
         if (row) await db.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
       }
+    },
+
+    settings: {
+      // No row yet means the defaults: rows are created on first save.
+      async get() {
+        const { data, error } = await db.from('user_settings')
+          .select('min_score,updated_at').eq('user_id', uid).maybeSingle();
+        if (error) throw fail(error, 'Could not read your settings.');
+        return toSettings(data);
+      },
+
+      async update(patch) {
+        const row = { user_id: uid, updated_at: new Date().toISOString() };
+        if (patch.minScore !== undefined) row.min_score = patch.minScore;
+        const { data, error } = await db.from('user_settings')
+          .upsert(row, { onConflict: 'user_id' })
+          .select('min_score,updated_at').single();
+        if (error) throw fail(error, 'Could not save your settings.');
+        return toSettings(data);
+      }
     }
   };
 }
+
+const toSettings = (r) => ({
+  minScore: r && Number.isInteger(r.min_score) ? r.min_score : config.defaultMinScore,
+  updatedAt: r ? r.updated_at : null
+});
 
 // The shape the dashboard already expects, so the UI needs no translation layer.
 const toRecord = (r) => ({

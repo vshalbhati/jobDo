@@ -13,19 +13,24 @@ export function originOf(url) {
   try { return new URL(normalizeUrl(url)).origin + '/*'; } catch { return ''; }
 }
 
-async function call(serverUrl, path, { method = 'GET', body, token } = {}) {
+async function call(serverUrl, path, { method = 'GET', body, token, timeoutMs = 60000 } = {}) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = 'Bearer ' + token;
 
+  // A hung request would stall the run loop for good; give up instead.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
   try {
     res = await fetch(normalizeUrl(serverUrl) + '/api' + path, {
-      method, headers,
+      method, headers, signal: ctrl.signal,
       body: body === undefined ? undefined : JSON.stringify(body)
     });
   } catch (e) {
-    throw new Error('Could not reach the server: ' + e.message);
+    throw new Error(e.name === 'AbortError' ? 'The server did not answer in time.' : 'Could not reach the server: ' + e.message);
+  } finally {
+    clearTimeout(timer);
   }
 
   const text = await res.text();
@@ -97,7 +102,7 @@ const toRecord = (jobId, r) => ({
   jobId,
   title: r.title, company: r.company, location: r.location, url: r.url,
   status: r.status, reason: r.reason, score: r.score,
-  source: r.source || 'easy', ats: r.ats || '', at: r.at
+  source: r.source || 'easy', ats: r.ats || '', site: r.site || 'linkedin', at: r.at
 });
 
 // Idempotent: the server upserts on (user, jobId), so re-sending a record that
@@ -140,14 +145,44 @@ export async function pushResume(cfg) {
 // Called from the run loop after each application. Failures are recorded and
 // swallowed: losing the network must never interrupt a run.
 export async function autoPush(jobId, entry) {
+  return autoPushMany([[jobId, entry]]);
+}
+
+// items: [[jobId, entry], ...] - one request for a whole batch of skips.
+export async function autoPushMany(items) {
+  if (!items.length) return;
   const cfg = await getConfig();
   if (!cfg.sync.enabled || !cfg.sync.autoPush || !cfg.sync.token || !cfg.sync.serverUrl) return;
   try {
-    await pushOne(cfg, jobId, entry);
+    await pushRecords(cfg, items.map(([id, entry]) => toRecord(id, entry)));
     await setConfig({ sync: { lastPushAt: Date.now(), lastError: '', pending: 0 } });
   } catch (e) {
-    const pending = (cfg.sync.pending || 0) + 1;
+    const pending = (cfg.sync.pending || 0) + items.length;
     await setConfig({ sync: { lastError: e.message, pending } });
     log('warn', 'Sync failed (' + pending + ' record(s) not uploaded): ' + e.message);
   }
+}
+
+export const isConnected = (cfg) => !!(cfg.sync.enabled && cfg.sync.token && cfg.sync.serverUrl);
+
+// ------------------------------------------------------------------ ranking
+
+// Scores postings with the ranker on the server, against your resume and
+// your account's threshold. Sends the current profile and resume text, since
+// they may carry corrections the uploaded copy lacks.
+export async function rankRemote(cfg, jobs) {
+  return authedCall(cfg, '/rank', {
+    method: 'POST',
+    body: { jobs, profile: cfg.profile, resumeText: cfg.resume.text || '' },
+    timeoutMs: 45000
+  });
+}
+
+// The threshold lives on the account so the web dashboard can change it too.
+export async function fetchSettings(cfg) {
+  return authedCall(cfg, '/settings');
+}
+
+export async function saveSettings(cfg, patch) {
+  return authedCall(cfg, '/settings', { method: 'PUT', body: patch });
 }

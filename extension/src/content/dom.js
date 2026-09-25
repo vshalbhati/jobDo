@@ -45,6 +45,18 @@ window.LEA = window.LEA || {};
     return (el && (el.innerText || el.textContent) || '').replace(/\s+/g, ' ').trim();
   }
 
+  // Like text(), but keeps line breaks. Job descriptions need them: the
+  // ranker tells "Requirements" from "Nice to have" by the headings, and a
+  // heading is only recognisable on a line of its own.
+  function blockText(el) {
+    return (el && (el.innerText || el.textContent) || '')
+      .replace(/\r/g, '')
+      .replace(/[ \t\u00a0]+/g, ' ')
+      .replace(/ *\n */g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   async function waitFor(fn, { timeout = 12000, interval = 220 } = {}) {
     const deadline = Date.now() + timeout;
     for (;;) {
@@ -183,7 +195,7 @@ window.LEA = window.LEA || {};
   }
 
   LEA.dom = {
-    sleep, rand, humanPause, q, qa, visible, text, waitFor, waitGone,
+    sleep, rand, humanPause, q, qa, visible, text, blockText, waitFor, waitGone,
     clickEl, setValue, setSelect, findButton, scrollThrough, labelOf, isEditable
   };
 })(window.LEA);

@@ -31,6 +31,11 @@ Confirm it with `npm run check:supabase`.
 | `ALLOW_SIGNUP` | `true` | Set `false` once your account exists |
 | `TRUST_PROXY` | `false` | `true` behind a reverse proxy, so rate limits see real IPs |
 | `PROVIDERS` | `supabase` | `memory` swaps in the in-memory test doubles |
+| `RANKER_URL` | empty | The Python ranker (`ranker/`). Empty turns ranking off: `/api/rank` answers 503 and the extension uses its built-in scorer |
+| `RANKER_SECRET` | — | Shared with the ranker; required when `RANKER_URL` is set |
+| `RANKER_TIMEOUT_MS` | `25000` | |
+| `UPSTASH_REDIS_REST_URL` | empty | Upstash Redis (REST URL, `https://`). Holds login rate-limit counts so every serverless instance shares them. Without it each instance counts on its own. `KV_REST_API_URL` also works |
+| `UPSTASH_REDIS_REST_TOKEN` | — | Required with the URL. `KV_REST_API_TOKEN` also works |
 
 ### Cookies, and why SameSite matters
 
@@ -76,6 +81,9 @@ There is no database to provision: Supabase is the database.
 | GET | `/api/resumes/:id/file` | The original file |
 | GET | `/api/resumes/current/profile` | The parsed profile |
 | DELETE | `/api/resumes/:id` | |
+| GET | `/api/settings` | `{ minScore }`, the ranking threshold (60 until changed) |
+| PUT | `/api/settings` | `{ minScore }`, a whole number 0-100 |
+| POST | `/api/rank` | `{ jobs: [{id, title, company, location, description}], profile?, resumeText? }`, at most 50 jobs. Scores them with the ranker against the stored resume (or the one sent) and the account's threshold |
 
 `client: "extension"` returns tokens in the body and sets no cookie; anything
 else gets the cookies.

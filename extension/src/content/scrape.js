@@ -3,7 +3,7 @@
 window.LEA = window.LEA || {};
 
 (function (LEA) {
-  const { q, qa, text, waitFor, clickEl, sleep, visible, scrollThrough } = LEA.dom;
+  const { q, qa, text, blockText, waitFor, clickEl, sleep, visible, scrollThrough } = LEA.dom;
   const SEL = LEA.SEL;
 
   function jobIdOf(card) {
@@ -76,10 +76,15 @@ window.LEA = window.LEA || {};
 
   async function openJob(job) {
     const card = qa(SEL.jobCard).find((c) => jobIdOf(c) === job.jobId);
-    if (!card) return { ok: false, reason: 'card no longer in list' };
-
-    const link = q(SEL.cardTitle, card) || card.querySelector('a[href*="/jobs/view/"]') || card;
-    await clickEl(link);
+    if (card) {
+      const link = q(SEL.cardTitle, card) || card.querySelector('a[href*="/jobs/view/"]') || card;
+      await clickEl(link);
+    } else if (currentJobIdFromUrl() !== job.jobId) {
+      // Reopening a job found earlier in the run: the page was loaded with
+      // ?currentJobId=, so its details are in the pane even if the list has
+      // shifted and the card itself scrolled off it.
+      return { ok: false, reason: 'card no longer in list' };
+    }
 
     const loaded = await waitFor(
       () => currentJobIdFromUrl() === job.jobId && q(SEL.detailsDescription) ? true : null,
@@ -95,7 +100,7 @@ window.LEA = window.LEA || {};
       ok: true,
       title: text(q(SEL.detailsTitle)) || job.title,
       company: text(q(SEL.detailsCompany)) || job.company,
-      description: text(q(SEL.detailsDescription)),
+      description: blockText(q(SEL.detailsDescription)),
       hasEasyApply: !!easyApplyButton()
     };
   }

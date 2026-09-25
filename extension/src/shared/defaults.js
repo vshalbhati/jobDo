@@ -75,12 +75,32 @@ export function defaultConfig() {
     },
 
     match: {
-      minScore: 35,
+      // The ranking threshold. The copy that counts lives on your jobDo
+      // account (so the web dashboard can change it); this is its local
+      // cache, and the bar for the built-in scorer when the server is away.
+      minScore: 60,
       titleInclude: [],
       titleExclude: ['director', 'vice president', 'intern', 'unpaid'],
       companyBlocklist: [],
       descriptionExclude: [],
       requireEasyApply: true
+    },
+
+    // Ranking: every run reads a larger pool of postings than it will apply
+    // to, has the ranker on your server score each one, then applies to the
+    // best first. Without a server connection it uses the built-in scorer.
+    rank: {
+      poolFactor: 3,     // read this many times as many jobs as the run can apply to
+      maxPool: 150,      // but never more than this per board
+      useServer: true
+    },
+
+    // One run a day on fresh postings - early applicants get seen first. If
+    // Chrome is closed at that time it runs as soon as Chrome opens, the same day.
+    schedule: {
+      enabled: true,
+      time: '14:00',     // local time, 24-hour
+      lastRunDay: ''     // Date.toDateString() of the last day it started
     },
 
     safety: {

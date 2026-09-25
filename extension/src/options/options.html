@@ -126,9 +126,20 @@
   </section>
 
   <section id="matching">
-    <h2>4. Matching</h2>
-    <label class="inline">Minimum match score <input id="m-minScore" type="range" min="0" max="100"> <b id="minScoreVal"></b></label>
-    <p class="hint">Scored from title overlap and how many of your skills appear in the description. Start around 35 and watch the log.</p>
+    <h2>4. Matching &amp; ranking</h2>
+    <label class="inline">Minimum ranking score <input id="m-minScore" type="range" min="0" max="100"> <b id="minScoreVal"></b></label>
+    <p class="hint">
+      Every run reads the full description of more jobs than it will apply to, has the ranker on your
+      jobDo server score each one from 0 to 100 against your resume (required skills, years of experience,
+      seniority, job title, education, and dealbreakers like a clearance or a language you don't speak),
+      then applies to the highest scores first. Jobs below this score are never applied to. Around 60 is a
+      good start; raise it if it applies to jobs you would not have picked.
+    </p>
+    <div class="status-line" id="thresholdStatus"></div>
+    <div class="grid">
+      <label>Read this many times as many jobs as it will apply to<input id="r-poolFactor" type="number" min="1" max="10" step="0.5"></label>
+      <label>But read at most this many per board<input id="r-maxPool" type="number" min="5" max="400"></label>
+    </div>
     <div class="grid">
       <label>Title must contain one of<textarea id="m-titleInclude" rows="2" placeholder="one per line, blank = any"></textarea></label>
       <label>Skip titles containing<textarea id="m-titleExclude" rows="2"></textarea></label>
@@ -138,7 +149,16 @@
   </section>
 
   <section id="safety">
-    <h2>5. Safety and pacing</h2>
+    <h2>5. Daily run, safety and pacing</h2>
+    <div class="row">
+      <label><input type="checkbox" id="sc-enabled"> Run automatically every day at <input id="sc-time" type="time" style="width:auto;margin:0"></label>
+    </div>
+    <p class="hint">
+      The daily run only looks at jobs posted in the last 24 hours, newest first, because early applicants
+      get seen first. Chrome has to be open for it; if it was closed at that time, the run starts as soon as
+      Chrome opens, any time before midnight.
+    </p>
+    <div class="status-line" id="scheduleStatus"></div>
     <div class="row">
       <label><input type="checkbox" id="f-dryRun"> Dry run <em>fill everything, never submit</em></label>
       <label><input type="checkbox" id="f-reviewBeforeSubmit"> Ask me before each submit</label>

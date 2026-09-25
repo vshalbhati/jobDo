@@ -11,7 +11,7 @@ window.LEA = window.LEA || {};
 
 (function (LEA) {
   const D = LEA.dom;
-  const { q, qa, text, visible, clickEl, sleep, waitFor } = D;
+  const { q, qa, text, blockText, visible, clickEl, sleep, waitFor } = D;
 
   // As ever, selectors are the thing that rots. They are grouped here so a
   // Naukri reskin is a one-file fix.
@@ -102,7 +102,7 @@ window.LEA = window.LEA || {};
       ok: true,
       title: text(q(SEL.detailTitle)) || job.title,
       company: text(q(SEL.detailCompany)) || job.company,
-      description: text(q(SEL.detailDescription)),
+      description: blockText(q(SEL.detailDescription)),
       hasQuickApply: !!q(SEL.applyButton) && !applied,
       hasExternalApply: !!q(SEL.companySiteButton),
       alreadyApplied: applied

@@ -17,7 +17,7 @@ window.LEA = window.LEA || {};
 
 (function (LEA) {
   const D = LEA.dom;
-  const { q, qa, text, visible, clickEl, sleep, waitFor } = D;
+  const { q, qa, text, blockText, visible, clickEl, sleep, waitFor } = D;
 
   const SEL = {
     card: ['.job_seen_beacon', 'div.cardOutline', '[data-testid="slider_item"]'],
@@ -109,7 +109,7 @@ window.LEA = window.LEA || {};
       ok: true,
       title: text(q(SEL.detailTitle)) || job.title,
       company: text(q(SEL.detailCompany)) || job.company,
-      description: text(q(SEL.detailDescription)),
+      description: blockText(q(SEL.detailDescription)),
       hasQuickApply: !!q(SEL.applyButton) && !applied,
       hasExternalApply: !!q(SEL.externalApply),
       alreadyApplied: applied

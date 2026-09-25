@@ -5,6 +5,7 @@
 //
 // Not for production: PROVIDERS defaults to 'supabase' unless NODE_ENV=test.
 import crypto from 'node:crypto';
+import { config } from './config.js';
 
 const usersByEmail = new Map();   // email -> { id, email, password }
 const usersById = new Map();
@@ -13,6 +14,7 @@ const refreshTokens = new Map();  // refresh token -> userId
 const rows = [];                  // applications
 const resumeRows = [];            // resumes
 const files = new Map();          // storage path -> Buffer
+const settingsRows = new Map();   // user id -> { min_score, updated_at }
 
 // Mirrors the Supabase project setting: when confirmation is required, signUp
 // creates the user but signIn refuses until the email is confirmed.
@@ -21,7 +23,7 @@ export function setRequireConfirmation(v) { requireConfirmation = !!v; }
 
 export function resetMemory() {
   usersByEmail.clear(); usersById.clear(); tokens.clear(); refreshTokens.clear();
-  rows.length = 0; resumeRows.length = 0; files.clear();
+  rows.length = 0; resumeRows.length = 0; files.clear(); settingsRows.clear();
 }
 
 const err = (message, status) => { const e = new Error(message); e.status = status; return e; };
@@ -180,6 +182,21 @@ export function repoFor(user) {
       async remove(id) {
         const i = resumeRows.findIndex((r) => r.id === id && r.user_id === uid);
         if (i >= 0) { files.delete(resumeRows[i].storage_path); resumeRows.splice(i, 1); }
+      }
+    },
+
+    settings: {
+      async get() {
+        const r = settingsRows.get(uid);
+        return { minScore: r ? r.min_score : config.defaultMinScore, updatedAt: r ? r.updated_at : null };
+      },
+
+      async update(patch) {
+        const r = settingsRows.get(uid) || { min_score: config.defaultMinScore };
+        if (patch.minScore !== undefined) r.min_score = patch.minScore;
+        r.updated_at = new Date().toISOString();
+        settingsRows.set(uid, r);
+        return { minScore: r.min_score, updatedAt: r.updated_at };
       }
     }
   };
