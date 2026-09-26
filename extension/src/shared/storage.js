@@ -32,6 +32,17 @@ export async function clearHistory() {
   await chrome.storage.local.set({ [HISTORY_KEY]: {} });
 }
 
+// Drops the entries that match, so those jobs can be tried again. Returns how many.
+export async function forgetHistory(match) {
+  const h = await getHistory();
+  let n = 0;
+  for (const [key, entry] of Object.entries(h)) {
+    if (match(entry, key)) { delete h[key]; n++; }
+  }
+  if (n) await chrome.storage.local.set({ [HISTORY_KEY]: h });
+  return n;
+}
+
 const MAX_LOG = 600;
 
 export async function log(level, message, extra) {

@@ -237,11 +237,15 @@ window.LEA = window.LEA || {};
     return { status: 'failed', reason: 'clicked Apply but nothing confirmed it' };
   }
 
+  // Answers straight after the click: the button usually takes this tab to
+  // the employer's site, and a page that is leaving cannot answer later.
   async function clickExternalApply() {
     const btn = q(SEL.companySiteButton);
-    if (!btn) return { ok: false, reason: 'no company-site Apply button on this posting' };
+    if (!btn) {
+      const seen = qa('button, a').filter((b) => /apply/i.test(text(b))).map((b) => '"' + text(b).slice(0, 40) + '"');
+      return { ok: false, reason: 'no company-site Apply button on this posting' + (seen.length ? ' (found ' + seen.slice(0, 4).join(', ') + ')' : '') };
+    }
     await clickEl(btn);
-    await sleep(1200);
     return { ok: true };
   }
 

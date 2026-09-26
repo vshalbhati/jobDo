@@ -1,4 +1,4 @@
-import { getConfig, setConfig, getHistory, recordApplication, log, setRun, getRun, resetRun } from '../shared/storage.js';
+import { getConfig, setConfig, getHistory, recordApplication, forgetHistory, log, setRun, getRun, resetRun } from '../shared/storage.js';
 import { scoreJob, hardSkip } from '../shared/matcher.js';
 import { searchKeywordsFrom } from '../shared/resume.js';
 import { detectAts, isLinkedInRedirect } from '../shared/ats.js';
@@ -58,6 +58,14 @@ chrome.runtime.onInstalled.addListener(async () => {
   const cfg = await getConfig();
   if (isDue(cfg)) await setConfig({ schedule: { lastRunDay: new Date().toDateString() } });
   log('info', 'Extension installed. Sign in to your jobDo account on its settings page to get started.');
+  // Earlier versions gave up on company-site jobs whose Apply button moves the
+  // tab straight to the employer, or whose pop-up Chrome blocked (Naukri). They
+  // were never really attempted, so they go back in the pool. Only those exact
+  // old messages: newer failures carry details and are real.
+  const retry = await forgetHistory((r) =>
+    (r.status === 'skipped' && r.reason === 'could not start the application') ||
+    (r.status === 'failed' && r.reason === 'the company site never opened'));
+  if (retry) log('info', retry + ' company-site job(s) that were never really attempted will be tried again.');
   await refreshFromAccount();
 });
 
@@ -652,40 +660,48 @@ async function applyViaPortal(job, cfg, boardTabId, opts = {}) {
 
   const boardTab = await chrome.tabs.get(boardTabId).catch(() => null);
   const windowId = boardTab ? boardTab.windowId : undefined;
-  const watcher = watchForNewTab(boardTabId, windowId, 30000);
+  const watcher = watchForNewTab(boardTabId, windowId, COMPANY_SITE_WAIT_MS);
 
+  if (trigger.type === 'CLICK_APPLY') await recordWindowOpens(boardTabId);
   const clicked = await send(boardTabId, trigger, 60000);
-  const started = trigger.type === 'CLICK_APPLY'
+  let started = trigger.type === 'CLICK_APPLY'
     ? !!(clicked && clicked.ok)
     : !!(clicked && clicked.status === 'handoff');
+
+  // Some boards (Naukri) send this very tab to the employer's site the moment
+  // the button is clicked. A page that is navigating away cannot answer, so
+  // its message channel just closes: that is the application starting, not
+  // failing. Whether the employer's site really opened is checked below.
+  if (!started && trigger.type === 'CLICK_APPLY' && clicked && PAGE_GONE.test(clicked.error || '')) {
+    log('info', 'The page moved on as the Apply button was clicked; following it.');
+    started = true;
+  }
 
   if (!started) {
     watcher.cancel();
     // A dry run on Indeed stops before the hand-off, which is a result, not a failure.
     if (clicked && clicked.status) return clicked;
-    return { status: 'skipped', reason: (clicked && clicked.reason) || 'could not start the application' };
+    return {
+      status: 'skipped',
+      reason: 'could not start the application' + (clicked && (clicked.reason || clicked.error) ? ': ' + (clicked.reason || clicked.error) : '')
+    };
   }
 
-  let portalTabId = null;
-  let borrowedBoardTab = false;
+  const found = await findCompanySite(boardTabId, watcher);
+  if (!found.tabId) return { status: 'failed', reason: found.reason };
+  const portalTabId = found.tabId;
+  const borrowedBoardTab = !!found.borrowed;
   let keepTab = false;
-  const opened = await watcher.promise;
-  if (opened) {
-    portalTabId = opened.id;
-  } else {
-    const now = await chrome.tabs.get(boardTabId).catch(() => null);
-    if (now && !siteForUrl(now.url || '')) {
-      portalTabId = boardTabId;
-      borrowedBoardTab = true;
-    }
-  }
-  if (!portalTabId) return { status: 'failed', reason: 'the company site never opened' };
 
   try {
     const url = await settleUrl(portalTabId);
     if (!url) return { status: 'failed', reason: 'company site did not finish loading' };
 
     const ats = detectAts(url);
+    // Ended up back on the job board (a login page, say), not the employer's site.
+    if (ats.mode === 'unknown' && siteForUrl(url)) {
+      return { status: 'failed', reason: 'the Apply button led back to ' + describeUrl(url) + ', not to the employer\'s site' + loginHint(url) };
+    }
     // Indeed's own apply flow is assisted unless you have explicitly allowed it.
     if (ats.id === 'indeed-smartapply' && cfg.sites.indeed && cfg.sites.indeed.autoSubmit) {
       ats.mode = 'auto';
@@ -740,9 +756,11 @@ async function closePortalTab(portalTabId, borrowed, keep, boardTabId, cfg) {
 function watchForNewTab(openerTabId, windowId, timeoutMs) {
   let settle;
   const promise = new Promise((resolve) => { settle = resolve; });
+  const api = { promise, tab: null, cancel: () => { cleanup(); settle(null); } };
   const onCreated = (tab) => {
     if (tab.openerTabId === openerTabId || (windowId !== undefined && tab.windowId === windowId)) {
       cleanup();
+      api.tab = tab;
       settle(tab);
     }
   };
@@ -752,7 +770,101 @@ function watchForNewTab(openerTabId, windowId, timeoutMs) {
     chrome.tabs.onCreated.removeListener(onCreated);
   }
   chrome.tabs.onCreated.addListener(onCreated);
-  return { promise, cancel: () => { cleanup(); settle(null); } };
+  return api;
+}
+
+// ------------------------------------------------ finding the employer's site
+
+const COMPANY_SITE_WAIT_MS = 30000;
+const OPEN_IT_OURSELVES_AFTER_MS = 2500;
+
+// A scripted click is not a user gesture, so when a job board opens the
+// employer's site with window.open (Naukri does), Chrome's popup blocker
+// quietly stops it and nothing happens. This records, in the page's own
+// JavaScript world where window.open lives, the address the page tried to
+// open - so the run can open it itself, which Chrome does allow.
+async function recordWindowOpens(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      const root = document.documentElement;
+      delete root.dataset.jobdoOpened;
+      if (window.__jobdoWatchingOpens) return;
+      window.__jobdoWatchingOpens = true;
+      const remember = (url) => {
+        try { root.dataset.jobdoOpened = new URL(String(url), location.href).href; } catch { /* not a URL */ }
+      };
+      const open = window.open;
+      window.open = function (url, ...rest) {
+        if (url) remember(url);
+        return open.call(window, url, ...rest);
+      };
+      // Links that open a new tab are blocked the same way.
+      document.addEventListener('click', (e) => {
+        const a = e.target && e.target.closest && e.target.closest('a[href][target="_blank"]');
+        if (a) remember(a.href);
+      }, true);
+    }
+  }).catch(() => {});
+}
+
+async function attemptedUrl(tabId) {
+  const res = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => document.documentElement.dataset.jobdoOpened || ''
+  }).catch(() => null);
+  const url = res && res[0] && res[0].result;
+  return /^https?:\/\//i.test(url || '') ? url : '';
+}
+
+// Waits for the employer's site to appear in one of the three ways it can:
+// a new tab the page opened, this same tab moving on, or - when Chrome blocked
+// the page - the address it tried to open, which is then opened directly.
+async function findCompanySite(boardTabId, watcher) {
+  const start = Date.now();
+  while (Date.now() - start < COMPANY_SITE_WAIT_MS) {
+    if (watcher.tab) return { tabId: watcher.tab.id };
+    const board = await chrome.tabs.get(boardTabId).catch(() => null);
+    if (!board) { watcher.cancel(); return { reason: 'the job tab was closed' }; }
+    const url = board.url || board.pendingUrl || '';
+    if (url && !siteForUrl(url) && !/^(about|chrome)/.test(url)) {
+      watcher.cancel();
+      return { tabId: boardTabId, borrowed: true };
+    }
+    if (Date.now() - start >= OPEN_IT_OURSELVES_AFTER_MS) {
+      const wanted = await attemptedUrl(boardTabId);
+      if (wanted) {
+        watcher.cancel();
+        log('info', 'Chrome blocked the page from opening the company site; opening it directly: ' + wanted.slice(0, 120));
+        const tab = await chrome.tabs.create({ url: wanted, openerTabId: boardTabId, windowId: board.windowId, active: true });
+        return { tabId: tab.id };
+      }
+    }
+    await sleep(500);
+  }
+  watcher.cancel();
+  const board = await chrome.tabs.get(boardTabId).catch(() => null);
+  const url = (board && board.url) || '';
+  return {
+    reason: 'the company site never opened: after the click the page stayed on ' + describeUrl(url) +
+      ' and did not try to open another site' + loginHint(url)
+  };
+}
+
+function describeUrl(url) {
+  try {
+    const u = new URL(url);
+    return (u.hostname.replace(/^www\./, '') + u.pathname).slice(0, 90);
+  } catch {
+    return 'an unknown page';
+  }
+}
+
+function loginHint(url) {
+  return /log-?in|sign-?in|register|nlogin|auth/i.test(describeUrl(url))
+    ? ' (it wants you logged in: sign in to that site in this browser)'
+    : '';
 }
 
 async function settleUrl(tabId, timeoutMs = 35000) {
@@ -851,6 +963,9 @@ async function ensureContentScript(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES }).catch(() => {});
   await sleep(600);
 }
+
+// What Chrome says when the page a message went to has gone away mid-reply.
+const PAGE_GONE = /message (channel|port) (is )?closed|receiving end does not exist|back\/forward cache|context invalidated/i;
 
 function send(tabId, msg, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
