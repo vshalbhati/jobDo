@@ -16,7 +16,7 @@ from .text import content_terms, cosine, tfidf_vectors
 
 # Part of every cache key: bump it whenever parsing or candidate building
 # changes, so entries written by the old code are never read by the new.
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __all__ = ["rank_jobs", "__version__"]
 
 
@@ -37,13 +37,16 @@ def rank_jobs(jobs, resume_text, profile, threshold=60, cache=None):
     for j in jobs:
         title = str(j.get("title") or "").strip()
         desc = str(j.get("description") or "")
+        # The company's and the location's names are not products it asks for.
+        where = (str(j.get("company") or ""), str(j.get("location") or ""))
         # A custom skill only changes how a posting is parsed if it appears in
         # it, so only those go into the key: postings stay shared between
         # people whose custom skills differ but do not occur there.
         extras = sk.present(custom, title + "\n" + jd.normalised(desc))
-        prepared.append((title, desc, extras, cache_key("job", __version__, title, desc, ",".join(extras))))
+        prepared.append((title, desc, extras, where,
+                         cache_key("job", __version__, title, desc, ",".join(extras), *where)))
 
-    hits = cache.get_many([cand_key] + [p[3] for p in prepared]) if cache else {}
+    hits = cache.get_many([cand_key] + [p[4] for p in prepared]) if cache else {}
     fresh = {}
 
     cand = cand_mod.from_cache(hits.get(cand_key))
@@ -52,10 +55,10 @@ def rank_jobs(jobs, resume_text, profile, threshold=60, cache=None):
         fresh[cand_key] = cand_mod.to_cache(cand)
 
     parsed = []
-    for title, desc, extras, k in prepared:
+    for title, desc, extras, where, k in prepared:
         info = jd.from_cache(hits.get(k), desc)
         if info is None:
-            info = parse_job(title, desc, extras)
+            info = parse_job(title, desc, extras, *where)
             fresh[k] = jd.to_cache(info)
         parsed.append(info)
 
@@ -67,11 +70,12 @@ def rank_jobs(jobs, resume_text, profile, threshold=60, cache=None):
     docs = [cand.terms] + [content_terms(p.title + " " + p.relevant_text) for p in parsed]
     vectors = tfidf_vectors(docs)
     resume_vec = vectors[0]
+    vocab = set(cand.terms)
 
     results = []
     for job, info, vec in zip(jobs, parsed, vectors[1:]):
         cos = cosine(resume_vec, vec) if info.length >= 80 else None
-        r = score(info, cand, cos, threshold)
+        r = score(info, cand, cos, threshold, vocab)
         r["id"] = str(job.get("id", ""))
         r["summary"] = "%d %s: %s" % (r["score"], r["verdict"], "; ".join(r["reasons"][:4]))
         results.append(r)
@@ -79,7 +83,7 @@ def rank_jobs(jobs, resume_text, profile, threshold=60, cache=None):
     order = sorted(range(len(results)), key=lambda i: -results[i]["score"])
     for rank, i in enumerate(order, 1):
         results[i]["rank"] = rank
-    parsed_fresh = sum(1 for p in prepared if p[3] in fresh)
+    parsed_fresh = sum(1 for p in prepared if p[4] in fresh)
     return {
         "threshold": threshold,
         "version": __version__,

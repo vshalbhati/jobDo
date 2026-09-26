@@ -9,7 +9,7 @@ save the database password somewhere safe.
 
 ## 2. Apply the schema
 
-Run the migrations in order — `0001_init.sql` then `0002_job_boards.sql` —
+Run the migrations in order — `0001_init.sql` through `0005_ranking_feedback.sql` —
 either by pasting each into **SQL Editor → New query**, or with the CLI:
 
 ```bash
@@ -22,7 +22,9 @@ bucket, the `application_stats()` function, and — the important part — the R
 Level Security policies. `0002` adds the job board an application came from and
 widens the uniqueness key to `(user, board, job id)`, since the same job id can
 exist on two different boards. It is safe to run on an existing database:
-existing rows default to `linkedin`.
+existing rows default to `linkedin`. `0005` keeps the posting text with each
+application and adds your match rating (`feedback`), which the dashboard sets
+and `ranker/evaluate.py` checks the ranker against.
 
 ## 3. Turn off email confirmation (optional)
 

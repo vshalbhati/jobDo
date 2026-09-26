@@ -67,6 +67,10 @@ export const ATS_MATCHES = [
   'https://*.eightfold.ai/*'
 ];
 
+// The optional permission that lets the extension work on career sites it does
+// not recognise. Chrome only grants it from a click on an extension page.
+export const ANY_SITE = { origins: ['https://*/*'] };
+
 export function detectAts(url) {
   let host = '';
   try { host = new URL(url).hostname.toLowerCase(); } catch { /* not a url */ }

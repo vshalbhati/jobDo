@@ -12,7 +12,7 @@ no GPU, and it starts in well under a second on a serverless host.
 
 | Component | Weight | How |
 |---|---|---|
-| Required skills | 35 | ~220 skills with their aliases (`k8s` = Kubernetes, `ReactJS` = React). A skill counts as *required* or *nice to have* by the section it's in ("Requirements" vs "Nice to have") and the wording ("must", "is a plus"). Close relatives earn partial credit: knowing React counts for half of a Vue requirement |
+| Required skills | 35 | ~220 skills with their aliases (`k8s` = Kubernetes, `ReactJS` = React). A skill counts as *required* or *nice to have* by the section it's in ("Requirements" vs "Nice to have") and the wording ("must", "is a plus"). Close relatives earn partial credit: knowing React counts for half of a Vue requirement. Products outside that list (Duck Creek, Guidewire, Pega, CyberArk) count too, and you have one if your resume names it: see below |
 | Experience | 20 | Years asked for (`3-5 years`, `5+ yrs`, `minimum of 4 years`) vs the years on your profile. Company age ("founded 20 years ago") is ignored. Years tied to one skill ("5+ years of Java") are checked against that skill |
 | Title | 15 | Same line of work (software, data science, QA, DevOps...), shared title words, and whether the tech in the title is yours |
 | Seniority | 10 | Intern ... director, from the title or the years asked for, against your level |
@@ -25,6 +25,11 @@ re-weighted, instead of being guessed at.
 
 On top of the average:
 
+- **The title decides what the job is.** If the technology or product in the
+  title isn't on your resume ("Salesforce Developer", "Duck Creek Policy
+  Developer"), the posting cannot score above 45, however well the generic
+  skills around it match. If you only have a close relative of it (C++ for a
+  "Rust Developer"), not above 55.
 - **Caps**: a posting where you cover under 35% of 4+ required skills, are 3+
   years short, or that is a different line of work cannot score above 45-50.
 - **Knockouts** (always skip): security clearance, US citizens only, fluency
@@ -33,19 +38,60 @@ On top of the average:
 - **Thin postings** (under ~250 characters) are judged cautiously: they
   have to beat the threshold by 10.
 
+**Products it has never heard of.** A skill list can't cover every insurance
+platform and vendor tool, and a posting built around one would otherwise look
+like a fit on the Java and SQL around it. So a word counts as a product when it
+is written like a name (mid-sentence capital, CamelCase, a short acronym), is
+repeated, and is *asked for* ("experience in Duck Creek", "Gosu programming").
+That last test is what keeps out cities, team names, clients and level codes
+("our Thane office", "the Atlas team", "Software Engineer II"), as do the
+posting's company and location.
+
+**Seniority from your title** moves your level halfway toward what the title
+says, not all the way: titles run ahead of experience at many companies, and
+two years as "Senior Software Developer" reads as mid-level.
+
 Every result carries its reasons, e.g.
 `91 apply: 10/11 key skills (missing web accessibility); asks 3-6y, you have 4y`,
 and those show up in the extension's log and in the dashboard's history.
 
+## Checking it against your ratings
+
+The rules above were tuned by hand, so the real test is jobs you have seen.
+Every job a run scores is saved to your account with its posting, and the
+dashboard's "Every application" table lets you mark each one a good or a bad
+match, whatever the run did with it. Rating a few skipped jobs matters as much
+as rating applied ones: that is the only way to find good jobs it turned down.
+
+Press **Export ratings** on the dashboard, then:
+
+```bash
+python evaluate.py jobdo-ratings.json                 # against your account's threshold
+python evaluate.py jobdo-ratings.json --threshold 65   # or try another
+```
+
+It scores every rated job again with the ranker in this folder, against the
+resume on your account, and prints how often it disagrees with you, how many
+good jobs it would skip and bad ones it would apply to, how well it keeps good
+jobs above bad ones (1.00 is perfect), and the threshold that would have agreed
+with you most. Each figure is shown for the scores given at the time and for
+the ranker as it is now, followed by every job it still gets wrong with its
+reasons. Run it before and after changing the ranker: a change that fixes one
+posting and breaks three others shows up here.
+
+The export holds your resume text, so keep it out of the repository.
+
 ## Caching
 
-Parsing a posting is almost all of the ranker's work (~50 ms), and the result
-doesn't depend on who is asking. So each parsed posting is cached and shared by
-everyone who comes across it, and each resume's features are cached per resume.
-A cached batch of 15 ranks in about 20 ms instead of about 750 ms.
+Parsing a posting is almost all of the ranker's work (~10 ms for a typical one,
+close to a second for the longest), and the result doesn't depend on who is
+asking. So each parsed posting is cached and shared by everyone who comes
+across it, and each resume's features are cached per resume.
+A cached batch of 15 ranks in about 20 ms instead of a few hundred.
 
-- **Keys are hashes of the content**: title + description (+ any of your custom
-  skills that appear in it) for a posting, resume text + profile for a resume.
+- **Keys are hashes of the content**: title + description + company + location
+  (+ any of your custom skills that appear in it) for a posting, resume text +
+  profile for a resume.
   Never a job id, so nobody can send a fake description for a real job and
   change other people's scores.
 - **Two layers**: a small in-memory cache per instance (free, lives while the

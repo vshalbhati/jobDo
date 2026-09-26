@@ -100,18 +100,50 @@ export function repoFor(user, accessToken) {
             source: r.source === 'portal' ? 'portal' : 'easy', ats: str(r.ats),
             site: site(r.site),
             applied_at: iso(r.at),
-            synced_at: new Date().toISOString()
+            synced_at: new Date().toISOString(),
+            ...(description(r.description) ? { description: description(r.description) } : {})
           }));
         if (!rows.length) return 0;
-        const { error } = await db.from('applications')
-          .upsert(rows, { onConflict: 'user_id,site,job_id' });
-        if (error) throw fail(error, 'Could not save the applications.');
+        // A bulk upsert writes every column any row names, and a row without
+        // it would write the default. Records re-sent from the extension's
+        // history carry no description, so they go separately and leave the
+        // saved one alone. Feedback is never in either: only you set it.
+        const withText = rows.filter((x) => 'description' in x);
+        const without = rows.filter((x) => !('description' in x));
+        for (const batch of [withText, without]) {
+          if (!batch.length) continue;
+          const { error } = await db.from('applications')
+            .upsert(batch, { onConflict: 'user_id,site,job_id' });
+          if (error) throw fail(error, 'Could not save the applications.');
+        }
         return rows.length;
+      },
+
+      // Returns false when there is no such application.
+      async setFeedback(jobId, boardId, value) {
+        const { data, error } = await db.from('applications')
+          .update({ feedback: value, feedback_at: value ? new Date().toISOString() : null })
+          .eq('job_id', String(jobId)).eq('site', site(boardId))
+          .select('job_id');
+        if (error) throw fail(error, 'Could not save the rating.');
+        return !!(data && data.length);
+      },
+
+      // Every rated application with the posting it was rated on.
+      async rated() {
+        const { data, error } = await db.from('applications')
+          .select('job_id,title,company,location,url,status,reason,score,source,ats,site,applied_at,description,feedback,feedback_at')
+          .not('feedback', 'is', null)
+          .order('applied_at', { ascending: false });
+        if (error) throw fail(error, 'Could not read the ratings.');
+        return (data || []).map((r) => ({
+          ...toRecord(r), description: r.description || '', feedbackAt: Date.parse(r.feedback_at) || null
+        }));
       },
 
       async list({ since = 0, limit = 50000, offset = 0 } = {}) {
         const { data, error } = await db.from('applications')
-          .select('job_id,title,company,location,url,status,reason,score,source,ats,site,applied_at')
+          .select('job_id,title,company,location,url,status,reason,score,source,ats,site,applied_at,feedback')
           .gte('applied_at', iso(since))
           .order('applied_at', { ascending: false })
           .range(offset, offset + limit - 1);
@@ -259,10 +291,12 @@ const toRecord = (r) => ({
   title: r.title, company: r.company, location: r.location, url: r.url,
   status: r.status, reason: r.reason, score: r.score,
   source: r.source, ats: r.ats, site: r.site || 'linkedin',
-  at: Date.parse(r.applied_at)
+  at: Date.parse(r.applied_at),
+  feedback: r.feedback || null
 });
 
 const str = (v) => (v === undefined || v === null ? '' : String(v));
+const description = (v) => str(v).slice(0, config.maxDescription).trim();
 const score = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null);
 const iso = (v) => new Date(Number(v) || 0).toISOString();
 const VALID = new Set(['applied', 'needs_manual', 'failed', 'dry_run', 'skipped']);

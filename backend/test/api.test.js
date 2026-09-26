@@ -316,6 +316,72 @@ r = await req('PUT', '/api/resumes/current/profile', { body: { profile: {} } });
 ok('saving a profile needs a sign-in', r.status === 401, r.status);
 
 // ---------------------------------------------------------------------------
+section('match ratings (what the ranker is checked against)');
+const posting = 'Requirements\n- 3+ years of Java and Spring Boot.';
+r = await req('POST', '/api/applications', { token: refreshedToken, body: { records: [
+  { jobId: 'naukri:r1', title: 'Java Developer', company: 'RateCo', status: 'applied', score: 81, site: 'naukri', at: now, description: posting },
+  { jobId: 'naukri:r2', title: 'Duck Creek Developer', company: 'RateCo', status: 'applied', score: 64, site: 'naukri', at: now - 10, description: 'Duck Creek Policy' },
+  { jobId: 'naukri:r3', title: 'Unrated', company: 'RateCo', status: 'skipped', score: 40, site: 'naukri', at: now - 20, description: 'x' }
+] } });
+ok('applications can carry the posting text', r.status === 200 && r.data.saved === 3, r.data);
+
+r = await req('PUT', '/api/feedback', { token: refreshedToken, body: { jobId: 'naukri:r1', site: 'naukri', feedback: 'good' } });
+ok('rates a job as a good match', r.status === 200 && r.data.feedback === 'good', r.data);
+r = await req('PUT', '/api/feedback', { token: refreshedToken, body: { jobId: 'naukri:r2', site: 'naukri', feedback: 'bad' } });
+ok('and another as a bad one', r.status === 200, r.data);
+r = await req('GET', '/api/applications', { token: refreshedToken });
+ok('the list shows each rating', r.data.records.find((x) => x.jobId === 'naukri:r1').feedback === 'good'
+  && r.data.records.find((x) => x.jobId === 'naukri:r3').feedback === null, r.data.records.filter((x) => x.company === 'RateCo'));
+ok('  but not the posting text, which would make the list heavy', !('description' in r.data.records[0]), Object.keys(r.data.records[0]));
+
+r = await req('PUT', '/api/feedback', { token: refreshedToken, body: { jobId: 'naukri:r1', site: 'naukri', feedback: 'meh' } });
+ok('rejects a rating that is not good, bad or null', r.status === 400, r.status);
+r = await req('PUT', '/api/feedback', { token: refreshedToken, body: { site: 'naukri', feedback: 'good' } });
+ok('rejects a rating with no job', r.status === 400, r.status);
+r = await req('PUT', '/api/feedback', { token: refreshedToken, body: { jobId: 'naukri:r1', site: 'indeed', feedback: 'good' } });
+ok('the board is part of which job is meant', r.status === 404, r.status);
+r = await req('PUT', '/api/feedback', { body: { jobId: 'naukri:r1', site: 'naukri', feedback: 'good' } });
+ok('rating needs a sign-in', r.status === 401, r.status);
+
+// The extension re-sends records from its own history (which keeps no
+// posting text) and re-records a job it tries again.
+await req('POST', '/api/applications', { token: refreshedToken, body: { records: [
+  { jobId: 'naukri:r1', title: 'Java Developer', company: 'RateCo', status: 'failed', score: 81, site: 'naukri', at: now }
+] } });
+r = await req('GET', '/api/feedback/export', { token: refreshedToken });
+const r1 = r.data.jobs.find((x) => x.jobId === 'naukri:r1');
+ok('a re-sent record without text keeps the saved posting', r1 && r1.description === posting, r1);
+ok('  and keeps its rating', r1 && r1.feedback === 'good' && r1.status === 'failed', r1);
+
+ok('the export holds only rated jobs', r.status === 200 && r.data.jobs.length === 2
+  && !r.data.jobs.some((x) => x.jobId === 'naukri:r3'), r.data.jobs.map((x) => x.jobId));
+ok('  with what the ranker needs to score them again',
+  ['title', 'company', 'location', 'description', 'score', 'feedback', 'site'].every((k) => k in r1), r1 && Object.keys(r1));
+ok('  and the resume and threshold they are ranked against',
+  r.data.resume && typeof r.data.resume.text === 'string' && typeof r.data.threshold === 'number', { resume: !!r.data.resume, threshold: r.data.threshold });
+ok('  offered as a download', /attachment/.test(r.headers.get('content-disposition') || ''), r.headers.get('content-disposition'));
+
+r = await req('POST', '/api/applications', { token: refreshedToken, body: { records: [
+  { jobId: 'naukri:long', title: 'Long', company: 'RateCo', status: 'skipped', site: 'naukri', at: now, description: 'y'.repeat(20000) }
+] } });
+await req('PUT', '/api/feedback', { token: refreshedToken, body: { jobId: 'naukri:long', site: 'naukri', feedback: 'bad' } });
+r = await req('GET', '/api/feedback/export', { token: refreshedToken });
+ok('a posting is kept to the length the ranker reads', r.data.jobs.find((x) => x.jobId === 'naukri:long').description.length === 12000);
+
+r = await req('PUT', '/api/feedback', { token: refreshedToken, body: { jobId: 'naukri:r2', site: 'naukri', feedback: null } });
+r = await req('GET', '/api/feedback/export', { token: refreshedToken });
+ok('a rating can be taken back', r.data.jobs.every((x) => x.jobId !== 'naukri:r2'), r.data.jobs.map((x) => x.jobId));
+
+r = await req('POST', '/api/auth/register', { body: { email: 'rater@example.com', password: PASSWORD, client: 'extension' } });
+const tokenRater = r.data.token;
+r = await req('PUT', '/api/feedback', { token: tokenRater, body: { jobId: 'naukri:r1', site: 'naukri', feedback: 'bad' } });
+ok("cannot rate another account's application", r.status === 404, r.status);
+r = await req('GET', '/api/feedback/export', { token: tokenRater });
+ok("and exports none of another account's ratings", r.data.jobs.length === 0 && r.data.resume === null, r.data);
+r = await req('GET', '/api/feedback/export', { token: refreshedToken });
+ok('  while the owner still has theirs', r.data.jobs.find((x) => x.jobId === 'naukri:r1').feedback === 'good');
+
+// ---------------------------------------------------------------------------
 section('one account cannot reach another');
 r = await req('POST', '/api/auth/register', { body: { email: 'b@example.com', password: PASSWORD, client: 'extension' } });
 const tokenB = r.data.token;

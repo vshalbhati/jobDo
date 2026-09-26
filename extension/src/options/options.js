@@ -4,6 +4,7 @@
 import { getConfig, setConfig, getHistory, clearHistory } from '../shared/storage.js';
 import { defaultConfig } from '../shared/defaults.js';
 import { SITES } from '../shared/sites.js';
+import { ANY_SITE } from '../shared/ats.js';
 import { describeNextRun } from '../shared/schedule.js';
 import { authenticate, whoAmI, pushAll, normalizeUrl, originOf, isConnected } from '../shared/sync.js';
 
@@ -149,8 +150,6 @@ function renderFacts() {
 
 // Unknown career sites are not in the manifest, so touching them needs an
 // optional permission the user grants explicitly.
-const ANY_SITE = { origins: ['https://*/*'] };
-
 async function renderPermission() {
   const granted = await chrome.permissions.contains(ANY_SITE);
   $('permStatus').className = 'status-line' + (granted ? ' ok' : '');

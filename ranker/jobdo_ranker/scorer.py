@@ -14,7 +14,7 @@ On top of the average sit two kinds of rule:
 """
 from . import roles
 from . import skills as sk
-from .text import clamp
+from .text import clamp, stem, tokens
 
 WEIGHTS = {
     "skills": 35,       # required skills covered
@@ -29,6 +29,17 @@ WEIGHTS = {
 LOW_CONFIDENCE_MARGIN = 10  # a thin posting must clear the bar by this much
 EVIDENCE_FULL = 70         # component weight needed before a score can use the full range
 
+# The title says what the job is. A "Rust Developer" posting is about Rust
+# however much of the rest you match.
+TITLE_MISSING_CAP = 45     # the title's technology or product is not on your resume
+TITLE_RELATIVE_CAP = 55    # only a close relative of it is (C++ for Rust, React for Vue)
+
+
+def _has_term(term, vocab):
+    """Whether the resume names a product the taxonomy does not know."""
+    words = tokens(term)
+    return bool(words) and all(stem(w) in vocab for w in words)
+
 
 def _credit(skill, cand):
     """1.0 for a skill you have; partial for a close relative; 0 otherwise."""
@@ -42,12 +53,20 @@ def _credit(skill, cand):
     return best, via
 
 
-def _coverage(wanted, cand, skill_years, smoothing):
-    """Weighted share of the wanted skills covered, plus what was matched and missed."""
+def _coverage(wanted, cand, skill_years, smoothing, products=None):
+    """Weighted share of the wanted skills covered, plus what was matched and missed.
+
+    products: {name: (weight, have)} for products the taxonomy does not know,
+    which are simply on the resume or not.
+    """
     num = den = 0.0
     matched, missing, partial, short = [], [], [], []
-    for skill, weight in sorted(wanted.items(), key=lambda kv: -kv[1]):
-        credit, via = _credit(skill, cand)
+    items = [(s, w, None) for s, w in wanted.items()] + [(t, w, own) for t, (w, own) in (products or {}).items()]
+    for skill, weight, owned in sorted(items, key=lambda x: -x[1]):
+        if owned is not None:
+            credit, via = (1.0 if owned else 0.0), None
+        else:
+            credit, via = _credit(skill, cand)
         need = skill_years.get(skill)
         if credit >= 1.0 and need:
             have = cand.skills.get(skill, cand.years)
@@ -138,13 +157,18 @@ def _similarity(cos):
     return clamp((cos - 0.03) / 0.25)
 
 
-def score(job, cand, cos, threshold):
+def score(job, cand, cos, threshold, vocab=None):
+    """vocab: the resume's terms as a set; computed here if not passed in."""
+    if vocab is None:
+        vocab = set(cand.terms)
     comps = {
         "skills": None, "experience": _experience(job, cand), "title": None,
         "seniority": _seniority(job, cand), "similarity": _similarity(cos),
         "preferred": None, "education": _education(job, cand),
     }
-    req_s, req_raw, matched, missing, partial, short = _coverage(job.required, cand, job.skill_years, 1.0)
+    products = {t: (w, _has_term(t, vocab)) for t, w in job.specialties.items() if w >= 0.6}
+    req_s, req_raw, matched, missing, partial, short = _coverage(job.required, cand, job.skill_years, 1.0, products)
+    n_req = len(job.required) + len(products)
     comps["skills"] = req_s
     pref_s, _, pref_matched, _, _, _ = _coverage(job.preferred, cand, {}, 0.5)
     comps["preferred"] = pref_s
@@ -160,7 +184,23 @@ def score(job, cand, cos, threshold):
 
     # ---- caps --------------------------------------------------------------
     caps = []
-    if req_raw is not None and len(job.required) >= 4 and req_raw < 0.35:
+    lead = []   # reasons that say what the job is; they go first
+    title_missing = [t for t in job.title_specialties if not _has_term(t, vocab)]
+    if job.title_skills:
+        credits = [_credit(s, cand) for s in job.title_skills]
+        best = max(c for c, _ in credits)
+        if best == 0:
+            title_missing += job.title_skills
+        elif best < 1:
+            via = next(v for c, v in credits if c == best)
+            why = "the title asks for %s; you have only %s, which is related" % (", ".join(job.title_skills[:2]), via)
+            caps.append((TITLE_RELATIVE_CAP, why))
+            lead.append(why)
+    if title_missing:
+        why = "the title asks for %s, which is not on your resume" % ", ".join(title_missing[:2])
+        caps.append((TITLE_MISSING_CAP, why))
+        lead.insert(0, why)
+    if req_raw is not None and n_req >= 4 and req_raw < 0.35:
         caps.append((50, "covers few of the key skills"))
     if job.years_min is not None and job.years_min - cand.years >= 3:
         caps.append((50, "well short of the experience asked for"))
@@ -198,7 +238,7 @@ def score(job, cand, cos, threshold):
     bar = threshold + (LOW_CONFIDENCE_MARGIN if confidence == "low" else 0)
     verdict = "apply" if not knockouts and final >= bar else "skip"
 
-    reasons = _reasons(job, cand, comps, matched, missing, partial, short, fam, knockouts, caps, confidence)
+    reasons = _reasons(job, cand, comps, matched, missing, partial, short, fam, knockouts, caps, confidence, n_req, lead)
     return {
         "score": final,
         "verdict": verdict,
@@ -218,9 +258,8 @@ def _fmt_years(lo, hi):
     return "%g+y" % lo
 
 
-def _reasons(job, cand, comps, matched, missing, partial, short, fam, knockouts, caps, confidence):
-    out = list(knockouts)
-    n_req = len(job.required)
+def _reasons(job, cand, comps, matched, missing, partial, short, fam, knockouts, caps, confidence, n_req, lead):
+    out = list(knockouts) + lead
     if n_req:
         s = "%d/%d key skills" % (len(matched), n_req)
         if missing:

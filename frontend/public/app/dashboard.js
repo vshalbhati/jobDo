@@ -1,7 +1,7 @@
 import {
   MODE, loadHistory, loadRun, loadSummary, onChange,
   getTheme, setTheme, openSettings, signOut, loadThreshold, saveThreshold,
-  loadResume, downloadResume
+  loadResume, downloadResume, saveFeedback, exportRatings
 } from './source.js';
 import { columnChart, stackedBar, barChart, heatmap } from './charts.js';
 
@@ -28,6 +28,7 @@ const state = {
   site: 'all',
   search: '',
   status: '',
+  rating: '',
   sort: { key: 'at', dir: -1 },
   page: 0,
   pageSize: 50
@@ -53,7 +54,8 @@ async function load() {
     source: r.source === 'portal' ? 'portal' : 'easy',
     site: r.site || 'linkedin',
     ats: r.ats || '',
-    at: r.at || 0
+    at: r.at || 0,
+    feedback: r.feedback === 'good' || r.feedback === 'bad' ? r.feedback : null
   })).sort((a, b) => b.at - a.at);
   render();
 }
@@ -217,6 +219,7 @@ function tableRows() {
   const q = state.search.trim().toLowerCase();
   let rows = filtered();
   if (state.status) rows = rows.filter((r) => r.status === state.status);
+  if (state.rating) rows = rows.filter((r) => (r.feedback || 'unrated') === state.rating);
   if (q) rows = rows.filter((r) => (r.title + ' ' + r.company).toLowerCase().includes(q));
   const { key, dir } = state.sort;
   return rows.sort((a, b) => {
@@ -266,6 +269,8 @@ function renderTable() {
     score.className = 'num';
     score.textContent = r.score ?? '';
 
+    const rating = rateCell(r);
+
     const status = document.createElement('td');
     const sspan = document.createElement('span');
     sspan.className = 'tag ' + r.status;
@@ -277,7 +282,7 @@ function renderTable() {
     detail.className = 'detail';
     detail.textContent = r.reason;
 
-    tr.append(when, job, company, route, score, status, detail);
+    tr.append(when, job, company, route, score, rating, status, detail);
     tbody.appendChild(tr);
   }
 
@@ -287,6 +292,61 @@ function renderTable() {
   $('pageLabel').textContent = 'Page ' + (state.page + 1) + ' of ' + pages;
   $('prevPage').disabled = state.page === 0;
   $('nextPage').disabled = state.page >= pages - 1;
+  renderRatingsNote();
+}
+
+// ------------------------------------------------------------ match ratings
+
+// Feather icons (MIT), drawn in the current text colour.
+const THUMB_UP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
+const THUMB_DOWN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
+const RATINGS = [['good', 'Good match', THUMB_UP], ['bad', 'Bad match', THUMB_DOWN]];
+
+// Pressing the rating a job already has takes it back.
+function rateCell(r) {
+  const td = document.createElement('td');
+  td.className = 'rate';
+  for (const [value, label, icon] of RATINGS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'rate-btn ' + value;
+    b.innerHTML = icon;
+    b.title = label;
+    b.setAttribute('aria-label', label + ': ' + r.title);
+    b.onclick = () => rate(r, r.feedback === value ? null : value, td);
+    td.appendChild(b);
+  }
+  paintRating(td, r);
+  return td;
+}
+
+function paintRating(td, r) {
+  td.querySelectorAll('.rate-btn').forEach((b, i) => b.setAttribute('aria-pressed', String(r.feedback === RATINGS[i][0])));
+}
+
+// Shown at once and put back if the account does not take it. Only this
+// row's buttons change, so the table does not jump while you work down it.
+async function rate(r, value, td) {
+  const before = r.feedback;
+  r.feedback = value;
+  paintRating(td, r);
+  renderRatingsNote();
+  try {
+    await saveFeedback(r, value);
+  } catch (e) {
+    r.feedback = before;
+    paintRating(td, r);
+    renderRatingsNote('Could not save that rating: ' + e.message);
+  }
+}
+
+function renderRatingsNote(error) {
+  const note = $('ratingsNote');
+  note.className = 'ratings-note' + (error ? ' err' : '');
+  if (error) { note.textContent = error; return; }
+  const good = state.records.filter((r) => r.feedback === 'good').length;
+  const bad = state.records.filter((r) => r.feedback === 'bad').length;
+  note.textContent = good + bad ? '\u00b7 ' + (good + bad) + ' rated: ' + good + ' good, ' + bad + ' bad' : '';
 }
 
 // ---------------------------------------------------------------- live strip
@@ -338,6 +398,19 @@ segHandler('siteSeg', (d) => { state.site = d.site; });
 
 $('search').addEventListener('input', (e) => { state.search = e.target.value; state.page = 0; renderTable(); });
 $('statusFilter').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; renderTable(); });
+$('ratingFilter').addEventListener('change', (e) => { state.rating = e.target.value; state.page = 0; renderTable(); });
+$('exportRatings').onclick = async () => {
+  $('exportRatings').disabled = true;
+  try {
+    const n = await exportRatings();
+    renderRatingsNote();
+    if (!n) renderRatingsNote('Nothing to export yet: rate some jobs first.');
+  } catch (e) {
+    renderRatingsNote('Could not export: ' + e.message);
+  } finally {
+    $('exportRatings').disabled = false;
+  }
+};
 $('prevPage').onclick = () => { state.page--; renderTable(); };
 $('nextPage').onclick = () => { state.page++; renderTable(); };
 
@@ -496,11 +569,11 @@ $('thresholdSave').onclick = async () => {
 
 $('exportCsv').onclick = () => {
   const rows = tableRows();
-  const head = ['jobId', 'date', 'title', 'company', 'location', 'site', 'route', 'ats', 'score', 'status', 'reason', 'url'];
+  const head = ['jobId', 'date', 'title', 'company', 'location', 'site', 'route', 'ats', 'score', 'rating', 'status', 'reason', 'url'];
   const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const body = rows.map((r) => [
     r.jobId, new Date(r.at).toISOString(), r.title, r.company, r.location,
-    r.site, r.source, r.ats, r.score, r.status, r.reason, r.url
+    r.site, r.source, r.ats, r.score, r.feedback, r.status, r.reason, r.url
   ].map(esc).join(','));
   const blob = new Blob([[head.join(','), ...body].join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');

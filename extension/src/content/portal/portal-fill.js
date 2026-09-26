@@ -19,7 +19,11 @@ window.LEA = window.LEA || {};
   const RESUME_FIELD = /resume|r[ée]sum[ée]|\bcv\b|upload/i;
   const SUBMIT_TEXT = /^(submit( application| my application)?|apply( now)?|send( application)?|finish|complete application)$/i;
   const NOT_SUBMIT = /save|cancel|back|previous|draft|sign ?in|log ?in|create (an )?account|register|clear|reset|attach|upload|browse|choose/i;
-  const REVEAL_TEXT = /^(apply|apply now|apply for this job|apply to this job|i'?m interested|start application|continue)$/i;
+  const REVEAL_TEXT = /^(apply|apply (now|online|here|today)|apply (for|to) (this|the) (job|position|role|vacancy|opening)|apply for job|i'?m interested|(start|begin)( my| your| the)? application|apply manually|continue( to (the )?application)?)$/i;
+  // A form with none of these is a job search or an alerts sign-up, not the
+  // application - so the Apply button still needs pressing.
+  const APPLICANT_FIELD = /e-?mail|phone|mobile|first.?name|last.?name|full.?name|resume|r[ée]sum[ée]|\bcv\b/i;
+  const NOT_APPLICATION = /search|filter|alert|newsletter|subscribe/i;
   const DONE_TEXT = /thank you|thanks for (applying|your)|application (has been )?(received|submitted|sent|complete)|successfully (applied|submitted)|we(’|')?ll be in touch|we have received your/i;
 
   // ------------------------------------------------------------- discovery
@@ -48,29 +52,131 @@ window.LEA = window.LEA || {};
     return document.body;
   }
 
+  // Cheap enough to run on every poll: no label walking, just the attributes
+  // and an explicit <label for>. Attributes are read with getAttribute because
+  // a form's .id or .action is shadowed by any field named "id" or "action".
+  function looksLikeApplication(form) {
+    return controlsIn(form).some((el) => {
+      if (/^(email|tel|file)$/i.test(el.type || '')) return true;
+      const lab = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
+      return APPLICANT_FIELD.test([
+        el.getAttribute('name'), el.getAttribute('id'), el.getAttribute('autocomplete'),
+        el.getAttribute('placeholder'), el.getAttribute('aria-label'), text(lab)
+      ].join(' '));
+    });
+  }
+
   // The application form is whichever container holds the most fillable
-  // controls - more reliable than guessing at a class name per ATS.
+  // controls - more reliable than guessing at a class name per ATS - with
+  // one that asks for contact details preferred over one that does not.
   function pickForm() {
     const forms = Array.from(document.querySelectorAll('form'))
+      .filter((f) => f.getAttribute('role') !== 'search' && !NOT_APPLICATION.test([
+        f.getAttribute('id'), f.getAttribute('class'), f.getAttribute('action'), f.getAttribute('name')
+      ].join(' ')))
       .map((f) => ({ el: f, n: controlsIn(f).length }))
       .filter((x) => x.n > 1)
       .sort((a, b) => b.n - a.n);
-    if (forms.length) return forms[0].el;
+    if (forms.length) return (forms.find((x) => looksLikeApplication(x.el)) || forms[0]).el;
     const all = controlsIn(document.body);
     if (all.length < 2) return null;
     return commonAncestor(all);
   }
 
-  // Many career pages show a button that reveals the form only once clicked.
-  async function revealForm(report) {
-    if (pickForm()) return true;
-    const btn = D.findButton([REVEAL_TEXT]) ||
-      Array.from(document.querySelectorAll('a')).find((a) => REVEAL_TEXT.test(text(a)) && visible(a));
-    if (!btn) return false;
-    report('portal', 'clicking "' + text(btn) + '" to open the form');
-    await clickEl(btn);
-    await waitFor(() => pickForm(), { timeout: 8000 });
-    return !!pickForm();
+  function applicationForm() {
+    const form = pickForm();
+    return form && looksLikeApplication(form) ? form : null;
+  }
+
+  const buttonLabel = (el) => (text(el) || el.value || el.getAttribute('aria-label') || '')
+    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '');       // "Apply now →"
+
+  // Something that opens the form rather than belonging to one. A button inside
+  // a form that already has fields is that form's own submit, and pressing it
+  // on an empty form is the last thing wanted. Labels already pressed are left
+  // out, so a second "Apply" further down the page is not pressed again.
+  function revealButton(tried) {
+    const found = Array.from(document.querySelectorAll('button, a, [role="button"], input[type="button"]'))
+      .filter((el) => visible(el) && REVEAL_TEXT.test(buttonLabel(el)))
+      .filter((el) => !tried.has(buttonLabel(el).toLowerCase()))
+      .filter((el) => !/^mailto:/i.test(el.getAttribute('href') || ''))
+      .filter((el) => { const f = el.closest('form'); return !f || controlsIn(f).length < 2; });
+    // "Continue" also closes cookie banners, so anything that says apply goes
+    // first, and the job's own button before a site-wide one in the header.
+    const rank = (el) => (/apply|interested|application/i.test(buttonLabel(el)) ? 0 : 2) +
+      (el.closest('nav, header, footer') ? 1 : 0);
+    return found.sort((a, b) => rank(a) - rank(b))[0] || null;
+  }
+
+  // Career pages often embed the real form from an ATS (Greenhouse's
+  // grnhse_iframe, say). This script runs only in the top frame, so the frame's
+  // own address is opened instead. atsHosts are the recognised ATS host
+  // patterns, sent by the background so the list lives in one place.
+  function atsFrame(atsHosts) {
+    const hosts = (atsHosts || []).map((s) => new RegExp(s));
+    for (const f of document.querySelectorAll('iframe[src]')) {
+      let host = '';
+      try { host = new URL(f.src).hostname; } catch { continue; }
+      if (host !== location.hostname && hosts.some((re) => re.test(host))) return f.src;
+    }
+    return '';
+  }
+
+  // Many career pages show the job description first and the form only behind
+  // an Apply button - sometimes two in a row (Workday: "Apply", then "Apply
+  // Manually"). Single-page apps render that button a few seconds after load,
+  // so it is waited for rather than looked for once.
+  // Returns { form }, { moved: url } when this tab is on its way elsewhere, or {}.
+  async function revealForm(report, atsHosts) {
+    const tried = new Set();
+    for (let step = 0; step < 3; step++) {
+      const next = await waitFor(() => {
+        if (applicationForm()) return { form: true };
+        const frame = atsFrame(atsHosts);
+        if (frame) return { frame };
+        const btn = revealButton(tried);
+        return btn ? { btn } : null;
+      }, { timeout: step ? 8000 : 15000 });
+      if (!next) break;
+      if (next.form) return { form: true };
+      if (next.frame) {
+        report('portal', 'the form is embedded from another site; opening it directly: ' + next.frame.slice(0, 100));
+        location.assign(next.frame);
+        return { moved: next.frame };
+      }
+
+      const btn = next.btn;
+      tried.add(buttonLabel(btn).toLowerCase());
+      // A scripted click is not a user gesture, so Chrome's popup blocker stops
+      // a link that opens a new tab. Following it in this tab instead lets the
+      // run carry on to whatever site it leads to.
+      const href = btn.tagName === 'A' ? btn.href : '';
+      if (btn.target === '_blank' && /^https?:/i.test(href) && href.split('#')[0] !== location.href.split('#')[0]) {
+        report('portal', 'following "' + text(btn) + '" to ' + href.slice(0, 100));
+        location.assign(href);
+        return { moved: href };
+      }
+      report('portal', 'clicking "' + text(btn) + '" to open the form');
+      await clickEl(btn);
+      if (await waitFor(() => applicationForm(), { timeout: 8000 })) return { form: true };
+    }
+    return pickForm() ? { form: true } : {};
+  }
+
+  function emailApply() {
+    const a = Array.from(document.querySelectorAll('a[href^="mailto:" i]'))
+      .find((el) => visible(el) && /apply|resume|r[ée]sum[ée]|\bcv\b|career|job|\bhr\b|recruit/i.test(text(el) + ' ' + el.getAttribute('href')));
+    return a ? a.getAttribute('href').slice(7).split('?')[0] : '';
+  }
+
+  // Named in the hand-off reason, so a page it could not work out can be
+  // looked into without reopening it.
+  function applyButtonsSeen() {
+    return Array.from(document.querySelectorAll('button, a, [role="button"]'))
+      .filter(visible).map(text)
+      .filter((t) => t && t.length <= 40 && /apply|application/i.test(t))
+      .filter((t, i, all) => all.indexOf(t) === i)
+      .slice(0, 3);
   }
 
   // ----------------------------------------------------------------- labels
@@ -401,14 +507,57 @@ window.LEA = window.LEA || {};
     return hit;
   }
 
+  function visibleErrors() {
+    return Array.from(document.querySelectorAll('[class*="error"], [role="alert"]'))
+      .filter(visible).map(text).filter(Boolean).slice(0, 3);
+  }
+
+  // For when Submit took the tab to a new page: a thank-you page, or the form
+  // back again with the site's complaints on it.
+  async function afterSubmit(ats) {
+    const how = await confirmed('');
+    if (how) return { status: 'applied', reason: 'submitted on ' + ats.name + ' (confirmed by ' + how + ')' };
+    const errs = visibleErrors();
+    return {
+      status: 'failed',
+      reason: errs.length ? 'form rejected: ' + errs.join('; ') : 'submitted, but the page that followed did not confirm it',
+      keepTab: true
+    };
+  }
+
   // ------------------------------------------------------------- entrypoint
 
-  async function apply(job, cfg, ats, report) {
+  // opts.atsHosts: recognised ATS host patterns, for embedded forms.
+  // opts.submitting(): resolves once the background knows Submit is about to
+  // be pressed.
+  async function apply(job, cfg, ats, report, opts = {}) {
     await sleep(rand(1200, 2200));
-    await revealForm(report);
+    const shown = await revealForm(report, opts.atsHosts);
+    // The background follows the tab and runs this again on the next page.
+    if (shown.moved) return { status: 'moved', reason: 'went on to ' + shown.moved };
 
     const form = pickForm();
-    if (!form) return { status: 'needs_manual', reason: 'no application form found on ' + location.hostname };
+    if (!form) {
+      const email = emailApply();
+      if (email) return { status: 'needs_manual', reason: 'this job takes applications by email (' + email + '), not a form', noForm: true };
+      const seen = applyButtonsSeen();
+      return {
+        status: 'needs_manual',
+        reason: 'no application form found on ' + location.hostname + (seen.length ? ' (buttons seen: "' + seen.join('", "') + '")' : ''),
+        noForm: true
+      };
+    }
+
+    // A short form with a password box is a sign-in or sign-up page. Filling
+    // it would create an account in the employer's recruiting system for you.
+    const passwords = Array.from(form.querySelectorAll('input[type="password"]')).filter(visible);
+    if (passwords.length && controlsIn(form).length <= 6) {
+      return {
+        status: 'needs_manual',
+        reason: ats.name + ' wants you to sign in or create an account before it shows the application',
+        keepTab: true
+      };
+    }
 
     report('portal', ats.name + ': found a form with ' + controlsIn(form).length + ' fields');
 
@@ -432,7 +581,7 @@ window.LEA = window.LEA || {};
       return {
         status: 'needs_manual',
         reason: ats.mode === 'unknown'
-          ? 'form is filled in; submitting on unrecognised sites is turned off'
+          ? 'form is filled in; submitting on unrecognised sites is off (website: Settings → 6. Company sites)'
           : ats.name + ' needs an account or a multi-step wizard - filled in as far as possible',
         keepTab: true
       };
@@ -447,12 +596,15 @@ window.LEA = window.LEA || {};
 
     const before = location.href;
     report('portal', 'submitting');
+    // Many sites answer Submit with a new page, and this script goes with the
+    // old one. Telling the background first lets it read that as the form
+    // being sent and check the new page, rather than as a failure.
+    if (opts.submitting) await opts.submitting();
     await clickEl(submit);
 
     const how = await confirmed(before);
     if (!how) {
-      const errs = Array.from(document.querySelectorAll('[class*="error"], [role="alert"]'))
-        .filter(visible).map(text).filter(Boolean).slice(0, 3);
+      const errs = visibleErrors();
       return {
         status: 'failed',
         reason: errs.length ? 'form rejected: ' + errs.join('; ') : 'submitted but no confirmation appeared',
@@ -462,5 +614,5 @@ window.LEA = window.LEA || {};
     return { status: 'applied', reason: 'submitted on ' + ats.name + ' (confirmed by ' + how + ')' };
   }
 
-  LEA.portal = { apply, pickForm, questions, labelFor, findSubmit, controlsIn };
+  LEA.portal = { apply, afterSubmit, pickForm, questions, labelFor, findSubmit, controlsIn };
 })(window.LEA);

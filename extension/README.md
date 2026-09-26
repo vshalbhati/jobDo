@@ -272,10 +272,22 @@ self identify" unless you have set a rule.
 It refuses to submit when anything required is still empty, and says which
 question stopped it.
 
+**Following the application across pages.** The form is often not on the page
+the job board links to. The background runs the page script again on each page
+the tab reaches, up to five: an Apply *link* (Lever's `/apply`), a button that
+opens a new tab (followed in the same tab, since Chrome's popup blocker stops
+scripted ones), an ATS form embedded in an iframe (its address is opened
+directly), and Workday-style "Apply" then "Apply Manually". SPA pages get up to
+15 seconds to render their Apply button. A short form with a password box is a
+sign-in page and is handed to you rather than filled. If Submit itself takes
+the tab to a new page, that page is checked for a confirmation instead of the
+navigation counting as a failure.
+
 **Permissions.** The recognised ATS domains are in the manifest. Unrecognised
-career sites are not — allowing those is an explicit opt-in button in Settings
-that requests the optional `https://*/*` permission, and you can revoke it from
-the same place.
+career sites are not — allowing those needs the optional `https://*/*`
+permission, which Chrome only grants from a click on an extension page. The
+popup shows an **Allow** button whenever company sites are on and it has not
+been granted; the extension's Account page can grant and revoke it too.
 
 **Budget.** Portal applications have their own smaller per-run cap (default 10)
 because each one costs a tab, a page load and a minute or two. They still count

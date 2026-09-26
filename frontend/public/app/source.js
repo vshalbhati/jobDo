@@ -178,6 +178,48 @@ export async function saveThreshold(minScore) {
   return res.minScore;
 }
 
+// ------------------------------------------------------------ match ratings
+
+// Your verdict on whether a job was a good match. It lives on the account,
+// which is where the ranker is checked against it (ranker/evaluate.py).
+// Inside the extension it goes there through the extension's own sign-in, and
+// onto this browser's record too so this copy of the dashboard shows it.
+export async function saveFeedback(record, feedback) {
+  if (IS_EXTENSION) {
+    const store = await extStorage();
+    const sync = await import('../shared/sync.js');
+    const cfg = await store.getConfig();
+    if (!sync.isConnected(cfg)) throw new Error('sign in to your jobDo account to rate jobs');
+    await sync.sendFeedback(cfg, record.jobId, record.site, feedback);
+    await store.setFeedback(record.jobId, feedback);
+    return feedback;
+  }
+  const res = await apiFetch('/feedback', {
+    method: 'PUT',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId: record.jobId, site: record.site, feedback })
+  });
+  return res.feedback;
+}
+
+// Every rated job with its posting, plus the resume and threshold: the file
+// ranker/evaluate.py reads.
+export async function exportRatings() {
+  let data;
+  if (IS_EXTENSION) {
+    const cfg = await (await extStorage()).getConfig();
+    data = await (await import('../shared/sync.js')).exportFeedback(cfg);
+  } else {
+    data = await apiGet('/feedback/export');
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  a.download = 'jobdo-ratings-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return data.jobs.length;
+}
+
 // ------------------------------------------------------------------ actions
 
 // Settings are edited on the website. Inside the extension that page is on

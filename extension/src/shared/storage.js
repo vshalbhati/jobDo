@@ -28,6 +28,16 @@ export async function recordApplication(jobId, entry) {
   return h;
 }
 
+// Unlike recordApplication, leaves the entry's time alone: rating a job is
+// not doing anything to it.
+export async function setFeedback(jobId, feedback) {
+  const h = await getHistory();
+  if (!h[jobId]) return false;
+  h[jobId] = { ...h[jobId], feedback: feedback || null };
+  await chrome.storage.local.set({ [HISTORY_KEY]: h });
+  return true;
+}
+
 export async function clearHistory() {
   await chrome.storage.local.set({ [HISTORY_KEY]: {} });
 }

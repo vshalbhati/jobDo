@@ -1,7 +1,7 @@
 import { getConfig, setConfig, getHistory, recordApplication, forgetHistory, log, setRun, getRun, resetRun } from '../shared/storage.js';
 import { scoreJob, hardSkip } from '../shared/matcher.js';
 import { searchKeywordsFrom } from '../shared/resume.js';
-import { detectAts, isLinkedInRedirect } from '../shared/ats.js';
+import { ATS_LIST, detectAts, isLinkedInRedirect } from '../shared/ats.js';
 import { SITES, siteForUrl } from '../shared/sites.js';
 import { autoPush, autoPushMany, isConnected, rankRemote, pullAccount, pushUnknownQuestions } from '../shared/sync.js';
 import { isDue, scheduledAt } from '../shared/schedule.js';
@@ -103,6 +103,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const type = msg && msg.type;
   if (type === 'CS_LOG') { log(msg.level, msg.message); return false; }
+  if (type === 'PORTAL_SUBMITTING') {
+    if (sender.tab) submittedTabs.add(sender.tab.id);
+    sendResponse({ ok: true });
+    return false;
+  }
   if (type === 'START_RUN') {
     startRun().then(sendResponse, (e) => sendResponse({ error: e.message }));
     return true;
@@ -541,7 +546,9 @@ async function applyNext(cfg, run, tabId, site) {
     at: Date.now()
   };
   await recordApplication(historyKey(job, run.siteId), entry);
-  await autoPush(historyKey(job, run.siteId), entry);
+  // The posting goes to the account only: this browser's history is rewritten
+  // whole on every record, so it stays small.
+  await autoPush(historyKey(job, run.siteId), { ...entry, description: outcome.description || '' });
   if (outcome.status === 'applied') await bumpDaily();
   if (outcome.unknowns && outcome.unknowns.length) await recordUnknowns(outcome.unknowns, job);
 
@@ -564,7 +571,8 @@ async function applyNext(cfg, run, tabId, site) {
   return true;
 }
 
-// Writes skipped postings to history and uploads them in one request.
+// Writes skipped postings to history and uploads them in one request, with
+// the posting text when it was read (to the account only, as in applyNext).
 // items: [[job, reason, score]]
 async function recordSkips(items, siteId) {
   if (!items.length) return;
@@ -577,7 +585,7 @@ async function recordSkips(items, siteId) {
       source: 'easy', ats: '', site: job.site || siteId, at: Date.now()
     };
     await recordApplication(key, entry);
-    pushed.push([key, entry]);
+    pushed.push([key, { ...entry, description: job.description || '' }]);
   }
   await autoPushMany(pushed);
 }
@@ -609,9 +617,17 @@ function withCurrentJob(pageUrl, jobId) {
   }
 }
 
+// The outcome carries the posting as it was read, for the account: that is
+// what a rating on the dashboard is later checked against. The ranked queue
+// itself keeps no descriptions, so they never pile up in the run's storage.
 async function processJob(job, cfg, tabId, site) {
   const opened = await openJob(job, tabId, site, true);
   if (!opened.ok) return { status: 'failed', reason: opened.reason };
+  const outcome = await applyOpened(job, opened, cfg, tabId, site);
+  return { ...outcome, description: opened.description || '' };
+}
+
+async function applyOpened(job, opened, cfg, tabId, site) {
   if (opened.alreadyApplied) return { status: 'skipped', reason: 'already applied' };
 
   const full = {
@@ -694,8 +710,43 @@ async function applyViaPortal(job, cfg, boardTabId, opts = {}) {
   let keepTab = false;
 
   try {
-    const url = await settleUrl(portalTabId);
+    const result = await applyOnCompanySite(job, cfg, portalTabId);
+    keepTab = !!result.keepTab;
+    return result;
+  } finally {
+    await closePortalTab(portalTabId, borrowedBoardTab, keepTab, boardTabId, cfg);
+  }
+}
+
+// Pages one application may pass through: a job description, the form behind
+// its Apply button, the ATS that page links to or embeds, and so on.
+const MAX_HOPS = 5;
+const ATS_HOSTS = ATS_LIST.map((a) => a.host.source);
+const DONE_URL = /thank|success|confirm|complete|submitted/i;
+
+// Tabs whose form has just had Submit pressed. When such a page goes away,
+// that is the form being sent, not the application moving to another page.
+const submittedTabs = new Set();
+
+const NO_ACCESS = (host) => 'career site jobDo does not recognise (' + host + '). ' +
+  'To let it fill these in, click the jobDo icon in Chrome and press Allow (once)';
+
+// Works through the employer's site in this one tab, following it from page to
+// page. The page script ends whenever the tab navigates, which happens all the
+// time here (Lever's Apply is a link to /apply), so it is run again on each
+// new page rather than the navigation counting as a failure.
+async function applyOnCompanySite(job, cfg, tabId) {
+  const slim = { ...cfg, resume: { ...cfg.resume, text: '' } };
+  const visited = [];
+  let counted = false;
+
+  for (let hop = 0; hop < MAX_HOPS; hop++) {
+    const url = await settleUrl(tabId);
     if (!url) return { status: 'failed', reason: 'company site did not finish loading' };
+    if (visited.includes(url)) {
+      return { status: 'needs_manual', reason: 'the site kept coming back to ' + describeUrl(url) + ' without showing a form', keepTab: true };
+    }
+    visited.push(url);
 
     const ats = detectAts(url);
     // Ended up back on the job board (a login page, say), not the employer's site.
@@ -710,35 +761,80 @@ async function applyViaPortal(job, cfg, boardTabId, opts = {}) {
     log('info', 'Company site: ' + ats.name + ' (' + ats.mode + ') - ' + url.slice(0, 120));
 
     if (ats.mode === 'unknown' && !(await canInject(url))) {
-      keepTab = true;
-      return {
-        status: 'needs_manual',
-        reason: 'unrecognised career site (' + ats.host + '); allow unknown sites in Settings to let it fill these in',
-        keepTab: true
-      };
+      return { status: 'needs_manual', reason: NO_ACCESS(ats.host), keepTab: true };
     }
 
-    await ensurePortalScript(portalTabId);
-    const ready = await send(portalTabId, { type: 'PORTAL_PING' }, 8000);
-    if (!ready || !ready.ok) {
-      keepTab = true;
-      return { status: 'needs_manual', reason: 'could not run on ' + ats.host, keepTab: true };
+    await ensurePortalScript(tabId);
+    const ready = await send(tabId, { type: 'PORTAL_PING' }, 8000);
+    if (!ready || !ready.ok) return { status: 'needs_manual', reason: 'could not run on ' + ats.host, keepTab: true };
+
+    if (!counted) {
+      counted = true;
+      const run = await getRun();
+      await setRun({ portalApplied: (run.portalApplied || 0) + 1 });
     }
 
-    const slim = { ...cfg, resume: { ...cfg.resume, text: '' } };
-    const result = await send(portalTabId, { type: 'PORTAL_APPLY', job, cfg: slim, ats }, 6 * 60 * 1000);
+    // A button that opens the real form with window.open is blocked like
+    // Naukri's is; this notes where it was going.
+    await recordWindowOpens(tabId);
+    submittedTabs.delete(tabId);
+    const result = await send(tabId, { type: 'PORTAL_APPLY', job, cfg: slim, ats, atsHosts: ATS_HOSTS }, 6 * 60 * 1000);
+    const gone = !!(result && result.error && PAGE_GONE.test(result.error));
+
+    if (submittedTabs.delete(tabId) && gone) return confirmAfterSubmit(tabId, ats, url);
+    if (gone || (result && result.status === 'moved')) {
+      log('info', 'The application moved on to another page; following it.');
+      await waitToLeave(tabId, url);
+      continue;
+    }
     if (!result || result.error) {
-      keepTab = true;
       return { status: 'failed', reason: 'portal script did not answer: ' + (result && result.error), keepTab: true };
     }
-
-    keepTab = !!result.keepTab;
-    const run = await getRun();
-    await setRun({ portalApplied: (run.portalApplied || 0) + 1 });
+    if (result.noForm) {
+      const wanted = await attemptedUrl(tabId);
+      if (wanted && wanted !== url) {
+        log('info', 'The page tried to open ' + wanted.slice(0, 120) + '; opening it here.');
+        await chrome.tabs.update(tabId, { url: wanted });
+        await waitToLeave(tabId, url);
+        continue;
+      }
+      // Still loading something the reveal click started.
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (tab && tab.status === 'loading') continue;
+    }
     return result;
-  } finally {
-    await closePortalTab(portalTabId, borrowedBoardTab, keepTab, boardTabId, cfg);
   }
+  return { status: 'needs_manual', reason: 'went through ' + MAX_HOPS + ' pages without reaching an application form', keepTab: true };
+}
+
+// A page that has just started navigating can still report its old address as
+// loaded for a moment; settling on that would look like going round in a loop.
+async function waitToLeave(tabId, url, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab || tab.status === 'loading' || (tab.pendingUrl || tab.url) !== url) return;
+    await sleep(300);
+  }
+}
+
+// Submit was pressed and the page went away. Usually that is a thank-you page,
+// but a site that validates on the server sends the form back the same way.
+async function confirmAfterSubmit(tabId, ats, formUrl) {
+  const url = await settleUrl(tabId);
+  if (url && url !== formUrl && DONE_URL.test(url)) {
+    return { status: 'applied', reason: 'submitted on ' + ats.name + ' (confirmed by url)' };
+  }
+  if (url && (detectAts(url).mode !== 'unknown' || await canInject(url))) {
+    await ensurePortalScript(tabId);
+    const res = await send(tabId, { type: 'PORTAL_CONFIRM', ats }, 40000);
+    if (res && res.status) return res;
+  }
+  return {
+    status: 'failed',
+    reason: 'pressed Submit, then the site moved to ' + describeUrl(url || '') + ' without confirming it',
+    keepTab: true
+  };
 }
 
 async function closePortalTab(portalTabId, borrowed, keep, boardTabId, cfg) {

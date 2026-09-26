@@ -14,7 +14,21 @@ from fixtures import (ALL, CLEARANCE, EMPTY, LANGUAGE, NAUKRI_INLINE, PROFILE, R
                       STRETCH, STRONG, THIN, WRONG_FIELD)
 from jobdo_ranker import rank_jobs  # noqa: E402
 from jobdo_ranker import skills as sk  # noqa: E402
+from jobdo_ranker.candidate import build_candidate  # noqa: E402
 from jobdo_ranker.jd import parse_job  # noqa: E402
+
+# Built on a product the taxonomy does not know, around skills the fixture
+# resume does have: without seeing the product it looks like a fit.
+DUCK_CREEK = {"id": "dc", "title": "Duck Creek Policy Developer", "company": "Aggne Global", "description": """
+Responsibilities
+- Configure and develop Duck Creek Policy using Author and Manuscripts.
+- Build REST APIs and integrations in JavaScript and Node.js.
+Requirements
+- 3-5 years of experience in Duck Creek Policy development.
+- Experience with REST APIs, JavaScript and SQL.
+"""}
+
+JAVA_REQ = "\nRequirements\n- 2-4 years of experience with Java and Spring Boot.\n- Experience building REST APIs.\n"
 
 
 def rank_one(job, threshold=60, resume=RESUME, profile=PROFILE):
@@ -96,6 +110,33 @@ class PostingParser(unittest.TestCase):
         self.assertFalse(info.needs_clearance)
 
 
+class Specialties(unittest.TestCase):
+    def test_a_product_the_taxonomy_does_not_know_is_found(self):
+        info = parse_job(DUCK_CREEK["title"], DUCK_CREEK["description"])
+        self.assertTrue(any("duck creek" in t for t in info.title_specialties), info.specialties)
+
+    def test_places_teams_levels_and_clients_are_not_products(self):
+        cases = [
+            ("Software Engineer II", "As a Software Engineer II you will build services." + JAVA_REQ +
+             "- As a Software Engineer II you will own features."),
+            ("SDE 2 - Backend", "As an SDE 2 you will build backend services in Java." + JAVA_REQ),
+            ("Java Developer - Thane", "We are hiring for our Thane office. You should be willing to work from Thane." + JAVA_REQ),
+            ("Software Engineer - Atlas Team", "The Atlas team owns our developer platform. Atlas serves every engineer." + JAVA_REQ),
+            ("Java Developer", "Our client HDFC Bank is hiring. You will work on the HDFC Bank platform." + JAVA_REQ),
+            ("Java Backend Developer", "Should Have Good Knowledge Of Core Java And Microservices.\n"
+             "Must Have Hands On Experience In REST APIs And PostgreSQL."),
+            ("MERN Stack Developer", "Requirements\n- 2+ years with MongoDB, Express, React and Node.js (MERN)."),
+        ]
+        for title, desc in cases:
+            info = parse_job(title, desc)
+            self.assertEqual(info.title_specialties, [], title)
+
+    def test_the_company_is_not_a_product(self):
+        desc = "Requirements\n- Experience with BBG internal tools and BBG processes.\n- Java and SQL."
+        self.assertIn("bbg", parse_job("Developer", desc).specialties)
+        self.assertNotIn("bbg", parse_job("Developer", desc, company="Building Blocks Group (BBG)").specialties)
+
+
 class Ranking(unittest.TestCase):
     def test_strong_match_is_applied_to(self):
         r = rank_one(STRONG)
@@ -125,6 +166,36 @@ class Ranking(unittest.TestCase):
         r = rank_one(LANGUAGE)
         self.assertEqual(r["verdict"], "skip")
         self.assertIn("needs fluent German", r["knockouts"])
+
+    def test_a_job_built_on_a_product_you_lack_is_skipped(self):
+        r = rank_one(DUCK_CREEK)
+        self.assertEqual(r["verdict"], "skip")
+        self.assertLessEqual(r["score"], 45)
+        self.assertIn("duck creek", r["reasons"][0])
+
+    def test_a_product_on_your_resume_is_not_held_against_you(self):
+        r = rank_one(DUCK_CREEK, resume=RESUME + "\n- 2 years configuring Duck Creek Policy with Author and Manuscripts.")
+        self.assertFalse(any("the title asks" in x for x in r["reasons"]), r["reasons"])
+        self.assertEqual(r["verdict"], "apply")
+
+    def test_title_technology_you_lack_caps_the_score(self):
+        r = rank_one({"id": "sf", "title": "Salesforce Developer", "description":
+                      "Requirements\n- 2-4 years of experience in Salesforce development with Apex.\n"
+                      "- Experience with REST APIs and JavaScript.\n- Git and Jest for testing."})
+        self.assertLessEqual(r["score"], 45)
+        self.assertIn("salesforce", r["reasons"][0])
+
+    def test_only_a_relative_of_the_title_technology(self):
+        r = rank_one({"id": "vue", "title": "Vue.js Developer", "description":
+                      "Requirements\n- 3+ years building web apps with Vue.js, JavaScript and TypeScript.\n"
+                      "- Experience with REST APIs, Redux-style state and Jest."})
+        self.assertLessEqual(r["score"], 55)
+        self.assertIn("only react", r["reasons"][0])
+
+    def test_a_senior_title_does_not_make_two_years_senior(self):
+        c = build_candidate("", {"defaultYears": 2, "currentTitle": "Senior Software Developer"})
+        self.assertLess(c.level, 3)
+        self.assertGreater(c.level, build_candidate("", {"defaultYears": 2}).level)
 
     def test_german_speaker_is_not_knocked_out(self):
         r = rank_one(LANGUAGE, resume=RESUME + "\nLanguages: English, German (C1)")

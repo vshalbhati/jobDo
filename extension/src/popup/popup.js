@@ -1,6 +1,7 @@
 import { getConfig, setConfig, getRun, getLog, clearLog } from '../shared/storage.js';
 import { describeNextRun } from '../shared/schedule.js';
 import { isConnected, patchConfig, normalizeUrl } from '../shared/sync.js';
+import { ANY_SITE } from '../shared/ats.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,6 +44,12 @@ async function render() {
   } else {
     warn.classList.add('hidden');
   }
+
+  // Without this permission every company site outside the known ATS list is
+  // handed straight back. Only an extension page can ask for it, and this is
+  // the one people actually open.
+  const granted = await chrome.permissions.contains(ANY_SITE).catch(() => true);
+  $('access').classList.toggle('hidden', !cfg.portal.enabled || granted);
 
   renderLog(await getLog());
 }
@@ -102,6 +109,10 @@ async function toggle(field, value) {
 $('dryRun').onchange = (e) => toggle('dryRun', e.target.checked);
 $('review').onchange = (e) => toggle('reviewBeforeSubmit', e.target.checked);
 $('clearLog').onclick = () => clearLog().then(render);
+$('allowSites').onclick = async () => {
+  await chrome.permissions.request(ANY_SITE).catch(() => false);
+  render();
+};
 // Settings live on the website; the extension's own page is just the account.
 $('options').onclick = async () => {
   const cfg = await getConfig();

@@ -98,12 +98,28 @@ export async function whoAmI(cfg) {
   return authedCall(cfg, '/me');
 }
 
+const DESCRIPTION_MAX = 12000;   // what the server keeps; the same the ranker reads
+
+// The posting text only goes up when this record has it (a run's own records
+// do; this browser's history does not), and the server keeps what it has
+// rather than blank it.
 const toRecord = (jobId, r) => ({
   jobId,
   title: r.title, company: r.company, location: r.location, url: r.url,
   status: r.status, reason: r.reason, score: r.score,
-  source: r.source || 'easy', ats: r.ats || '', site: r.site || 'linkedin', at: r.at
+  source: r.source || 'easy', ats: r.ats || '', site: r.site || 'linkedin', at: r.at,
+  ...(r.description ? { description: String(r.description).slice(0, DESCRIPTION_MAX) } : {})
 });
+
+// Your verdict on a job's match, set from the dashboard inside the extension.
+export async function sendFeedback(cfg, jobId, site, feedback) {
+  return authedCall(cfg, '/feedback', { method: 'PUT', body: { jobId, site, feedback } });
+}
+
+export async function exportFeedback(cfg) {
+  if (!isConnected(cfg)) throw new Error('sign in to your jobDo account first');
+  return authedCall(cfg, '/feedback/export');
+}
 
 // Idempotent: the server upserts on (user, jobId), so re-sending a record that
 // is already there just refreshes it.

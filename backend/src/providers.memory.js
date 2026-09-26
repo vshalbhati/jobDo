@@ -108,10 +108,31 @@ export function repoFor(user) {
           };
           // Unique per (user, board, job): the same job id can exist on two boards.
           const at = rows.findIndex((x) => x.user_id === uid && x.job_id === row.job_id && x.site === row.site);
+          const prev = at >= 0 ? rows[at] : {};
+          // As in Postgres: a record without a description keeps the saved
+          // one, and the rating is never touched by a sync.
+          row.description = description(r.description) || prev.description || '';
+          row.feedback = prev.feedback || null;
+          row.feedback_at = prev.feedback_at || null;
           if (at >= 0) rows[at] = row; else rows.push(row);
           n++;
         }
         return n;
+      },
+
+      async setFeedback(jobId, boardId, value) {
+        const row = mine(rows).find((x) => x.job_id === String(jobId) && x.site === site(boardId));
+        if (!row) return false;
+        row.feedback = value;
+        row.feedback_at = value ? Date.now() : null;
+        return true;
+      },
+
+      async rated() {
+        return mine(rows)
+          .filter((r) => r.feedback)
+          .sort((a, b) => b.applied_at - a.applied_at)
+          .map((r) => ({ ...toRecord(r), description: r.description, feedbackAt: r.feedback_at }));
       },
 
       async list({ since = 0, limit = 50000, offset = 0 } = {}) {
@@ -225,9 +246,10 @@ const view = (r) => ({
 const toRecord = (r) => ({
   jobId: r.job_id, title: r.title, company: r.company, location: r.location, url: r.url,
   status: r.status, reason: r.reason, score: r.score, source: r.source, ats: r.ats,
-  site: r.site || 'linkedin', at: r.applied_at
+  site: r.site || 'linkedin', at: r.applied_at, feedback: r.feedback || null
 });
 const str = (v) => (v === undefined || v === null ? '' : String(v));
+const description = (v) => str(v).slice(0, config.maxDescription).trim();
 const score = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null);
 const VALID = new Set(['applied', 'needs_manual', 'failed', 'dry_run', 'skipped']);
 const status = (v) => (VALID.has(v) ? v : 'skipped');

@@ -50,7 +50,10 @@ export const config = {
   redisProblem: '',   // set below when the Redis settings are unusable
 
   maxResumeBytes: 8 * 1024 * 1024,
-  maxBatch: 2000
+  maxBatch: 2000,
+  // Characters of a posting kept with an application: the same amount the
+  // extension sends the ranker.
+  maxDescription: 12000
 };
 
 export function validateConfig() {

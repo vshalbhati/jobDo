@@ -11,3 +11,6 @@ pass.txt
 *.db
 *.db-wal
 *.db-shm
+
+# Dashboard rating exports hold your resume text
+jobdo-ratings*.json

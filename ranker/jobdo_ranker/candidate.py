@@ -105,9 +105,11 @@ def build_candidate(resume_text, profile):
     level = roles.level_from_years(years)
     named = roles.title_level(profile.get("currentTitle") or (titles[0] if titles else ""))
     # A "Senior Engineer" title after three years says more than the years do,
-    # within reason.
+    # within reason - but titles run ahead of experience at many companies, so
+    # it moves the level halfway there rather than all the way. Two years with
+    # a Senior title reads as mid-level, not senior.
     if named is not None and level is not None and level < named <= level + 1.5:
-        level = float(named)
+        level += (named - level) / 2
 
     edu = education_levels(str(profile.get("education") or "") + "\n" + text)
 

@@ -72,10 +72,12 @@ There is no database to provision: Supabase is the database.
 | POST | `/api/auth/logout` | |
 | POST | `/api/auth/reset-password` | Always the same answer, so it cannot enumerate accounts |
 | GET | `/api/me` | |
-| POST | `/api/applications` | `{records:[...]}`, upserted on `(user, jobId)` — re-sending is safe |
+| POST | `/api/applications` | `{records:[...]}`, upserted on `(user, jobId)` — re-sending is safe. A record's `description` (the posting, up to 12,000 characters) is kept; a record without one leaves the saved one alone |
 | GET | `/api/applications` | `?since=&limit=&offset=` |
 | GET | `/api/stats` | Aggregated in Postgres, not in the browser |
 | DELETE | `/api/applications` | Needs `?confirm=yes` |
+| PUT | `/api/feedback` | `{ jobId, site, feedback }`: your match rating, `"good"`, `"bad"`, or `null` to take it back. 404 if the account has no such application |
+| GET | `/api/feedback/export` | Every rated application with its posting, plus the resume and threshold: the file `ranker/evaluate.py` reads |
 | POST | `/api/resume` | `{filename, mime, data, text, profile}`; base64 or data URL, 8 MB cap |
 | GET | `/api/resumes` | Metadata only |
 | GET | `/api/resumes/:id/file` | The original file |
@@ -122,9 +124,10 @@ of writing one more file.
 npm test
 ```
 
-66 tests against a real listener using the in-memory providers — no Supabase
-project, no network. They cover registration and login, token refresh and
-replay, the auth guard, upsert semantics, input sanitising, resume round-trips,
+About 170 checks against a real listener using the in-memory providers — no
+Supabase project, no network. They cover registration and login, token refresh
+and replay, the auth guard, upsert semantics, input sanitising, resume round-trips,
+match ratings and their export,
 header injection through filenames, CORS behaviour for allowed, unknown and
 extension origins, and cross-account isolation.
 

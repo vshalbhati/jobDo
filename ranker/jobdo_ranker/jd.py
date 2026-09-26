@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, field
 
 from . import roles
 from . import skills as sk
+from .text import STOPWORDS
 
 # How much a skill mention counts, by where in the posting it appears.
 SECTION_WEIGHT = {"required": 1.0, "duties": 0.75, "general": 0.7, "preferred": 0.35, "other": 0.1}
@@ -137,6 +138,167 @@ _LANG_REQ = re.compile(
 )
 
 
+# ---------------------------------------------------------------- specialties
+#
+# Products and platforms the taxonomy does not know: Duck Creek, Guidewire,
+# Pega, CyberArk. Skill matching cannot see them, so a posting built around
+# one looks like a fit on the generic Java and SQL around it. They are found
+# by how they are written - a name mid-sentence, CamelCase, a short acronym -
+# by being repeated, and by being asked for ("experience in Duck Creek"),
+# which is what tells a product from a city, a team or a client's name.
+
+_WORD = re.compile(r"[A-Za-z][A-Za-z0-9]+")
+_CAMEL = re.compile(r"[a-z][A-Z]")
+_SENTENCE_START = set("\n.!?:;•·▪◦●*-–—>(|/,")
+
+# Capitalised in postings without naming a product: roles, degrees, places,
+# calendar words, and acronyms every posting uses.
+_NOT_SPECIALTY = frozenset("""
+engineer engineers engineering developer developers development software senior junior lead associate principal
+staff intern trainee manager consultant analyst architect specialist executive officer administrator admin member
+technical technology technologies tech solution solutions service services system systems platform platforms
+application applications product products project projects program programme business enterprise company client
+clients customer customers group department division office global international national domain industry
+india indian usa uk europe emea apac asia america americas remote hybrid onsite home full part time permanent
+contract contractual temporary internship fresher freshers immediate joiner joiners urgent hiring opening openings
+vacancy vacancies career careers job jobs position positions role roles candidate candidates applicant applicants
+bachelor bachelors master masters degree degrees graduate graduates graduation postgraduate undergraduate
+university universities college institute school diploma certification certifications certified certificate
+computer science information electronics electrical mechanical communication communications mathematics maths
+statistics physics btech mtech mca bca bsc msc mba phd ug pg be me bs ms ba ma any specialization specialisation
+english hindi monday tuesday wednesday thursday friday saturday sunday january february march april may june july
+august september october november december am pm ist est pst gmt utc api apis ui ux it hr cs sdk ide json xml yaml
+csv http https url os pc ms ci cd qa qc sla slas kpi kpis poc mvp saas paas iaas b2b b2c sdlc stlc oops dbms
+rdbms nosql mvc crud etc eg ie faq ceo cto cfo coo vp svp inc ltd pvt llc llp corp co us
+a1 a2 b1 b2 c1 c2
+type employment category functional area
+ii iii iv vi vii viii sde sse ase swe mts smts lmts pmts l1 l2 l3 l4 l5 l6 walk walkin drive interview
+mern mean mevn lamp jamstack
+mumbai delhi ncr bangalore bengaluru hyderabad pune chennai kolkata gurugram gurgaon noida ahmedabad jaipur kochi
+cochin chandigarh indore coimbatore trivandrum thiruvananthapuram mysore mysuru nagpur lucknow bhubaneswar
+vadodara surat visakhapatnam vizag goa london singapore dubai berlin amsterdam toronto seattle austin boston
+chicago york san francisco
+""".split())
+
+# Share of the posting's own weight a specialty gets next to a known skill:
+# the name is certain, whether it is a skill at all is less so.
+SPECIALTY_DISCOUNT = 0.8
+
+# What makes a name a skill rather than a place, a team or a client: being
+# asked for. "Experience in Duck Creek", "Gosu programming" - never "our
+# Thane office" or "the Atlas team". Looked for earlier in the same sentence,
+# or just after the name.
+_ASKED_BEFORE = re.compile(
+    r"experience|expertise|knowledge|proficien|hands[\s-]on|skill|familiar|exposure|certifi|understanding of"
+    r"|\byears? (of|with|in)\b|\b(strong|good|expert|skilled|well[\s-]versed) (in|with|at)\b"
+    r"|\b(develop|configur|customi[sz]|implement|program|administ|integrat)\w*",
+    re.I,
+)
+_ASKED_AFTER = re.compile(
+    r"[\s,/()-]*(?:\w+[\s-]){0,2}?(developer|development|configuration|customi[sz]ation|programming|certification"
+    r"|certified|consultant|implementation|modules?|products?|suite|expertise|experience|skills?|knowledge"
+    r"|administration|integration)\b",
+    re.I,
+)
+
+
+def _starts_sentence(text, pos):
+    before = text[:pos].rstrip(" \t\"'“‘")
+    return not before or before[-1] in _SENTENCE_START or before[-1].isdigit()
+
+
+def _specialties(title, text, spans, starts, known, exclude):
+    """({term: weight}, [terms named in the title]) for unrecognised products.
+
+    known: (start, end) of every taxonomy match, which are not candidates.
+    exclude: words that are the company's or the location's, not skills.
+    """
+    chars = list(text)
+    for a, b in known:
+        chars[a:b] = " " * (b - a)
+    masked = "".join(chars)
+    words = [(m.start(), m.group(0)) for m in _WORD.finditer(masked)]
+    if not words:
+        return {}, []
+    # A posting In Title Case Throughout or IN CAPITALS says nothing by its
+    # capitals; only the forms it cannot produce by accident still count.
+    inner = [w for p, w in words if not _starts_sentence(masked, p)] or [w for _, w in words]
+    allow_capital = sum(w[0].isupper() for w in inner) / len(inner) < 0.5
+    allow_upper = sum(w.isupper() for _, w in words) / len(words) < 0.25
+    lowercase = {w for _, w in words if w.islower()}
+    title_words = {w.lower() for w in _WORD.findall(title)}
+
+    seen = {}
+    for pos, w in words:
+        low = w.lower()
+        if low in _NOT_SPECIALTY or low in STOPWORDS or low in exclude or len(low) < 2:
+            continue
+        span = _span_at(spans, starts, pos)
+        if not span or span[2] == "other":
+            continue
+        strong = bool(_CAMEL.search(w)) or (allow_upper and w.isupper() and len(w) <= 6)
+        capital = allow_capital and w[0].isupper() and not _starts_sentence(masked, pos)
+        # A word also written in lower case is an ordinary word.
+        if low in lowercase and not strong:
+            continue
+        s = seen.setdefault(low, {"n": 0, "strong": 0, "capital": 0, "asked": 0, "best": 0.0, "pos": []})
+        s["n"] += 1
+        s["strong"] += strong
+        s["capital"] += capital
+        end = pos + len(w)
+        s["asked"] += bool(_ASKED_BEFORE.search(text, max(span[0], pos - 100), pos)
+                           or _ASKED_AFTER.match(text, end, min(span[1], end + 40)))
+        s["best"] = max(s["best"], span[3])
+        s["pos"].append(pos)
+
+    kept = {}
+    for low, s in seen.items():
+        in_title = low in title_words
+        evidence = s["strong"] or s["capital"] >= 2 or (s["capital"] and in_title)
+        mentions = s["n"] + in_title
+        if evidence and s["asked"] and (mentions >= 2 or (s["strong"] and s["best"] >= 0.9)):
+            kept[low] = s
+    if not kept:
+        return {}, []
+
+    # "Duck Creek" is one product, not two missing skills: words that stand
+    # next to each other in most of their mentions are joined.
+    at = {p: low for low, s in kept.items() for p in s["pos"]}
+    pairs = {}
+    for low, s in kept.items():
+        for p in s["pos"]:
+            end = _WORD.match(masked, p).end()
+            nxt = at.get(end + 1) if end < len(masked) and masked[end] in " -" else None
+            if nxt and nxt != low:
+                pairs[(low, nxt)] = pairs.get((low, nxt), 0) + 1
+    parent = {low: low for low in kept}
+
+    def root(x):
+        while parent[x] != x:
+            x = parent[x]
+        return x
+
+    for (a, b), n in pairs.items():
+        if n * 2 > min(kept[a]["n"], kept[b]["n"]):
+            parent[root(b)] = root(a)
+
+    groups = {}
+    for low in kept:
+        groups.setdefault(root(low), []).append(low)
+
+    out, in_title = {}, []
+    for members in groups.values():
+        members.sort(key=lambda m: kept[m]["pos"][0])
+        term = " ".join(members)
+        best = max(kept[m]["best"] + min(0.15, 0.05 * (kept[m]["n"] - 1)) for m in members)
+        named = any(m in title_words for m in members)
+        out[term] = 1.3 if named else round(best * SPECIALTY_DISCOUNT, 3)
+        # Only a well-attested name in the title decides what the job is.
+        if named and any(kept[m]["strong"] or kept[m]["n"] >= 2 for m in members):
+            in_title.append(term)
+    return out, in_title
+
+
 @dataclass
 class JobInfo:
     title: str
@@ -156,6 +318,8 @@ class JobInfo:
     languages: list = field(default_factory=list)
     needs_clearance: bool = False
     needs_citizenship: bool = False
+    specialties: dict = field(default_factory=dict)       # unrecognised product -> weight
+    title_specialties: list = field(default_factory=list)  # those the title is about
     relevant_text: str = ""        # the posting minus about-us and benefits, for similarity
 
 
@@ -319,13 +483,14 @@ def _knockouts(spans, text):
     return clearance, citizenship, langs
 
 
-def parse_job(title, description, extra_skills=()):
+def parse_job(title, description, extra_skills=(), company="", location=""):
     title = str(title or "").strip()
     text = _normalise(description)
     spans = _spans(text)
     starts = [s[0] for s in spans]
 
-    hits = sk.find_skills(text, extra_skills)
+    known = []
+    hits = sk.find_skills(text, extra_skills, spans=known)
     weights = {}
     for name, offsets in hits.items():
         best = 0.0
@@ -348,6 +513,8 @@ def parse_job(title, description, extra_skills=()):
     info.years_min, info.years_max, info.skill_years = _years(text, spans, starts, hits)
     info.education, info.education_flexible = _education(spans, text)
     info.needs_clearance, info.needs_citizenship, info.languages = _knockouts(spans, text)
+    exclude = {w.lower() for w in _WORD.findall(str(company or "") + " " + str(location or ""))}
+    info.specialties, info.title_specialties = _specialties(title, text, spans, starts, known, exclude)
 
     info.families = roles.families(title)
     info.level = roles.title_level(title)

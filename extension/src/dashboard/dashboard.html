@@ -138,7 +138,10 @@
 
   <section class="card table-card">
     <div class="table-head">
-      <h2>Every application</h2>
+      <div>
+        <h2>Every application</h2>
+        <p class="card-sub">Mark whether each job was a good match for you, whatever the run did with it. Your ratings are what the ranker gets checked against.</p>
+      </div>
       <div class="table-tools">
         <input id="search" type="search" placeholder="Search job or company">
         <select id="statusFilter">
@@ -149,6 +152,13 @@
           <option value="skipped">Skipped</option>
           <option value="failed">Failed</option>
         </select>
+        <select id="ratingFilter" aria-label="Filter by your rating">
+          <option value="">All ratings</option>
+          <option value="unrated">Not rated yet</option>
+          <option value="good">Good match</option>
+          <option value="bad">Bad match</option>
+        </select>
+        <button id="exportRatings" class="ghost" type="button" title="Every rated job with its posting, for ranker/evaluate.py">Export ratings</button>
       </div>
     </div>
     <div class="table-scroll">
@@ -160,6 +170,7 @@
             <th data-sort="company" class="sortable">Company</th>
             <th data-sort="site" class="sortable">Board</th>
             <th data-sort="score" class="sortable num">Score</th>
+            <th>Good match?</th>
             <th data-sort="status" class="sortable">Outcome</th>
             <th>Detail</th>
           </tr>
@@ -168,7 +179,7 @@
       </table>
     </div>
     <div class="table-foot">
-      <span id="tableCount"></span>
+      <span><span id="tableCount"></span> <span id="ratingsNote" class="ratings-note"></span></span>
       <div class="pager">
         <button id="prevPage" class="ghost" type="button">Previous</button>
         <span id="pageLabel"></span>

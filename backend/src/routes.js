@@ -175,6 +175,46 @@ api.get('/stats', requireAuth, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ------------------------------------------------------------ match ratings
+//
+// Your verdict on whether a job was a good match, set from the dashboard. It
+// is what the ranker is checked against: ranker/evaluate.py replays the
+// export below through the current ranker and reports where they disagree.
+
+const RATINGS = new Set(['good', 'bad']);
+
+api.put('/feedback', requireAuth, async (req, res, next) => {
+  try {
+    const { jobId, site, feedback } = req.body || {};
+    if (typeof jobId !== 'string' || !jobId) return res.status(400).json({ error: 'Expected { jobId, site, feedback }.' });
+    if (feedback !== null && !RATINGS.has(feedback)) {
+      return res.status(400).json({ error: 'feedback must be "good", "bad" or null.' });
+    }
+    const found = await req.repo.applications.setFeedback(jobId, site, feedback);
+    if (!found) return res.status(404).json({ error: 'No such application on this account.' });
+    res.json({ jobId, site, feedback });
+  } catch (e) { next(e); }
+});
+
+// Everything needed to score the rated jobs again: the postings, your
+// verdicts, and the resume and threshold they are ranked against.
+api.get('/feedback/export', requireAuth, async (req, res, next) => {
+  try {
+    const [jobs, resume, settings] = await Promise.all([
+      req.repo.applications.rated(),
+      req.repo.resumes.current(),
+      req.repo.settings.get()
+    ]);
+    res.set('Content-Disposition', 'attachment; filename="jobdo-ratings.json"');
+    res.json({
+      exportedAt: new Date().toISOString(),
+      threshold: settings.minScore,
+      resume: resume ? { text: resume.text_content || '', profile: resume.profile || {} } : null,
+      jobs
+    });
+  } catch (e) { next(e); }
+});
+
 api.delete('/applications', requireAuth, async (req, res, next) => {
   try {
     if (req.query.confirm !== 'yes') {

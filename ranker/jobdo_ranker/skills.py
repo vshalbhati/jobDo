@@ -324,12 +324,25 @@ def _alias_pattern(alias):
 
 
 class Skill:
-    __slots__ = ("name", "family", "pattern")
+    __slots__ = ("name", "family", "pattern", "needles")
 
-    def __init__(self, name, family, pattern):
+    def __init__(self, name, family, pattern, needles=None):
         self.name = name
         self.family = family
         self.pattern = pattern
+        # Lower-cased fragments one of which must be in the text for the
+        # pattern to match. A posting names a handful of the ~220 skills, and
+        # a substring test is far cheaper than the regex it saves.
+        self.needles = needles
+
+
+def _needle(alias):
+    """A part of an alias that appears as written in any text it matches.
+
+    Only the spaces in an alias are flexible (see _alias_pattern), so each word
+    is literal; the longest is the rarest, so it rules out the most text.
+    """
+    return max(alias.lstrip("=").lower().split(" "), key=len)
 
 
 def _build():
@@ -344,7 +357,7 @@ def _build():
         # Longest first, so "spring boot" wins over "spring" inside one skill.
         variants.sort(key=lambda a: -len(a.lstrip("=")))
         pattern = re.compile("|".join(_alias_pattern(a) for a in variants))
-        skills[name] = Skill(name, family, pattern)
+        skills[name] = Skill(name, family, pattern, tuple({_needle(a) for a in variants}))
     for name, (family, pattern) in _SPECIAL.items():
         skills[name] = Skill(name, family, pattern)
     return skills
@@ -393,24 +406,33 @@ def present(names, text):
                   and re.search(_alias_pattern(n), text or ""))
 
 
-def find_skills(text, extra=None):
+def find_skills(text, extra=None, spans=None):
     """Every skill in text as {name: [match start offsets]}.
 
     extra: additional custom skill names (from the candidate's profile) that
     are not in the taxonomy, matched literally.
+    spans: a list to append each match's (start, end) to, for callers that
+    need to know which stretches of text were recognised.
     """
     found = {}
     if not text:
         return found
+    low = text.lower()
     for skill in SKILLS.values():
-        hits = [m.start() for m in skill.pattern.finditer(text)]
-        if hits:
-            found[skill.name] = hits
+        if skill.needles and not any(n in low for n in skill.needles):
+            continue
+        matches = list(skill.pattern.finditer(text))
+        if matches:
+            found[skill.name] = [m.start() for m in matches]
+            if spans is not None:
+                spans.extend((m.start(), m.end()) for m in matches)
     for name in extra or ():
         if name in found or name in SKILLS or len(name) < 2:
             continue
         pat = re.compile(_alias_pattern(name))
-        hits = [m.start() for m in pat.finditer(text)]
-        if hits:
-            found[name] = hits
+        matches = list(pat.finditer(text))
+        if matches:
+            found[name] = [m.start() for m in matches]
+            if spans is not None:
+                spans.extend((m.start(), m.end()) for m in matches)
     return found
