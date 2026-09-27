@@ -222,9 +222,115 @@ window.LEA = window.LEA || {};
     return a === b || (a.length >= 8 && b.startsWith(a)) || (b.length >= 8 && a.startsWith(b));
   }
 
+  // ---------------------------------------------------------- page panels
+  //
+  // The cards jobDo shows on a job site's own page: "Ready to submit" and
+  // "Over to you". Drawn in a shadow root so the site's CSS cannot restyle
+  // them and theirs cannot leak onto the site, and styled through a
+  // constructed stylesheet, which a site's Content-Security-Policy does not
+  // block the way it can a <style> element.
+
+  const PANEL_CSS = `
+    :host { all: initial; }
+    .p {
+      box-sizing: border-box; width: 330px; position: relative; overflow: hidden;
+      padding: 16px 16px 16px; border-radius: 14px;
+      font: 13px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      color: #0b0b0b; background: #ffffff; border: 1px solid rgba(11, 11, 11, .12);
+      box-shadow: 0 20px 44px -14px rgba(0, 0, 0, .38);
+      animation: in .18s ease-out;
+    }
+    .p::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, #3b8cea, #2554c7); }
+    .p.warn::before { background: #fab219; }
+    @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+    @media (prefers-reduced-motion: reduce) { .p { animation: none; } }
+    .top { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+    .top svg { width: 22px; height: 22px; flex: none; }
+    .top span b { color: #2a78d6; }
+    .x { margin-left: auto; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 8px; background: none; color: #898781; cursor: pointer; font: inherit; font-size: 17px; line-height: 1; }
+    .x:hover { background: rgba(11, 11, 11, .06); color: #0b0b0b; }
+    .t { margin: 10px 0 2px; font-size: 14.5px; font-weight: 650; letter-spacing: -.005em; }
+    .b { color: #52514e; font-size: 12.5px; }
+    .n { margin-top: 6px; color: #898781; font-size: 12px; }
+    .acts { display: flex; gap: 8px; margin-top: 14px; }
+    .acts button { flex: 1; height: 36px; border-radius: 10px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 650; }
+    .primary { border: 0; color: #ffffff; background: linear-gradient(135deg, #3b8cea, #2554c7); box-shadow: 0 6px 14px -6px rgba(37, 84, 199, .7); }
+    .primary:hover { filter: brightness(1.07); }
+    .secondary { color: #0b0b0b; background: #ffffff; border: 1px solid rgba(11, 11, 11, .16); }
+    .secondary:hover { background: #f5f5f3; }
+    button:focus-visible { outline: 2px solid rgba(42, 120, 214, .7); outline-offset: 2px; }
+    @media (prefers-color-scheme: dark) {
+      .p { color: #ffffff; background: #1a1a19; border-color: rgba(255, 255, 255, .12); }
+      .b { color: #c3c2b7; }
+      .top span b { color: #3987e5; }
+      .x:hover { background: rgba(255, 255, 255, .08); color: #ffffff; }
+      .secondary { color: #ffffff; background: #222221; border-color: rgba(255, 255, 255, .16); }
+      .secondary:hover { background: #2a2a29; }
+    }`;
+
+  const PANEL_LOGO = '<svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+    '<stop offset="0" stop-color="#4f9bf0"/><stop offset="1" stop-color="#2554c7"/></linearGradient></defs>' +
+    '<rect width="32" height="32" rx="9" fill="url(#g)"/><path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff"' +
+    ' stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  // opts: { id, where: 'top' | 'bottom', tone: 'accent' | 'warn', title, body,
+  //         note, actions: [{ label, primary, onClick }], onClose }
+  // Returns close(). A panel with the same id is replaced.
+  function panel(opts) {
+    const old = document.getElementById(opts.id);
+    if (old) old.remove();
+    const host = document.createElement('div');
+    host.id = opts.id;
+    host.style.cssText = 'position:fixed;z-index:2147483647;right:16px;' + (opts.where === 'top' ? 'top:16px;' : 'bottom:16px;');
+    const root = host.attachShadow({ mode: 'open' });
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(PANEL_CSS);
+      root.adoptedStyleSheets = [sheet];
+    } catch {
+      const style = document.createElement('style');
+      style.textContent = PANEL_CSS;
+      root.appendChild(style);
+    }
+
+    const el = (tag, cls, txt) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (txt !== undefined) n.textContent = txt;
+      return n;
+    };
+    const box = el('div', 'p' + (opts.tone === 'warn' ? ' warn' : ''));
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-label', 'jobDo: ' + opts.title);
+    const top = el('div', 'top');
+    top.innerHTML = PANEL_LOGO + '<span>job<b>Do</b></span>';
+    const close = () => { host.remove(); if (opts.onClose) opts.onClose(); };
+    const x = el('button', 'x', '×');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Close');
+    x.onclick = close;
+    top.appendChild(x);
+    box.append(top, el('div', 't', opts.title));
+    if (opts.body) box.appendChild(el('div', 'b', opts.body));
+    if (opts.note) box.appendChild(el('div', 'n', opts.note));
+    if (opts.actions && opts.actions.length) {
+      const acts = el('div', 'acts');
+      for (const a of opts.actions) {
+        const b = el('button', a.primary ? 'primary' : 'secondary', a.label);
+        b.type = 'button';
+        b.onclick = () => { host.remove(); if (a.onClick) a.onClick(); };
+        acts.appendChild(b);
+      }
+      box.appendChild(acts);
+    }
+    root.appendChild(box);
+    (document.body || document.documentElement).appendChild(host);
+    return () => host.remove();
+  }
+
   LEA.dom = {
     sleep, rand, humanPause, q, qa, visible, text, blockText, waitFor, waitGone,
     clickEl, setValue, setSelect, findButton, scrollThrough, labelOf, isEditable,
-    fileFromDataUrl, sameFileName
+    fileFromDataUrl, sameFileName, panel
   };
 })(window.LEA);

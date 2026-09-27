@@ -70,30 +70,17 @@ window.LEA = window.LEA || {};
 
   // When the run hands a tab back to you, say so on the page itself - a line
   // in the extension log is easy to miss when a tab opens in the background.
+  // Not "filled this in": on a sign-in page or a list of openings nothing was.
   function banner(reason, job) {
     if (document.getElementById('lea-handoff')) return;
-    const el = document.createElement('div');
-    el.id = 'lea-handoff';
-    Object.assign(el.style, {
-      position: 'fixed', top: '0', left: '0', right: '0', zIndex: '2147483647',
-      background: '#0a66c2', color: '#fff', padding: '10px 16px',
-      font: '13px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif',
-      display: 'flex', gap: '12px', alignItems: 'center',
-      boxShadow: '0 2px 10px rgba(0,0,0,.25)'
+    LEA.dom.panel({
+      id: 'lea-handoff',
+      where: 'top',
+      tone: 'warn',
+      title: 'Over to you',
+      body: reason,
+      note: job && job.title ? job.title + (job.company ? ' at ' + job.company : '') : '',
+      actions: [{ label: 'Dismiss' }]
     });
-    const txt = document.createElement('div');
-    txt.style.flex = '1';
-    // Not "filled this in": on a sign-in page or a list of openings nothing was.
-    txt.innerHTML = '<b>jobDo handed this one to you:</b> ';
-    txt.appendChild(document.createTextNode(reason + (job && job.title ? '  —  ' + job.title + ' at ' + job.company : '')));
-    const close = document.createElement('button');
-    close.textContent = 'Dismiss';
-    Object.assign(close.style, {
-      background: 'rgba(255,255,255,.15)', color: '#fff', border: '1px solid rgba(255,255,255,.5)',
-      borderRadius: '14px', padding: '4px 12px', cursor: 'pointer', font: 'inherit'
-    });
-    close.onclick = () => el.remove();
-    el.append(txt, close);
-    document.body.appendChild(el);
   }
 })(window.LEA);

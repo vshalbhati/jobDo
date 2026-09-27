@@ -2,92 +2,142 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>jobDo - Account</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jobDo — Account</title>
+<link rel="icon" href="../../icons/icon48.png">
+<!-- The dashboard's design tokens and components, so every page of the
+     extension looks like the website. -->
+<link rel="stylesheet" href="../dashboard/dashboard.css">
 <link rel="stylesheet" href="options.css">
 </head>
-<body>
-<nav>
-  <h1>jobDo</h1>
-  <a href="#account">Account</a>
-  <a href="#using">What it runs with</a>
-  <a href="#sites">Career sites</a>
-  <a href="#history">History</a>
-  <a href="../dashboard/dashboard.html" target="_blank" class="nav-cta">Open dashboard &rarr;</a>
-</nav>
+<body class="viz-root">
 
-<main>
-  <p class="notice">
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f9bf0"/><stop offset="1" stop-color="#2554c7"/></linearGradient></defs>
+      <rect width="32" height="32" rx="9" fill="url(#logoGrad)"/>
+      <path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1 class="brand-name">job<span>Do</span></h1>
+  </div>
+  <div class="topbar-title"><span data-icon="user"></span>Extension account</div>
+  <nav class="page-nav" aria-label="Sections">
+    <a href="#account">Account</a>
+    <a href="#using">What it runs with</a>
+    <a href="#sites">Career sites</a>
+    <a href="#history">History</a>
+  </nav>
+  <div class="topbar-actions">
+    <button id="theme" class="icon-btn" type="button" title="Switch light / dark" aria-label="Switch light / dark" data-icon="contrast"></button>
+    <a class="ghost" href="../dashboard/dashboard.html" target="_blank" data-icon="dashboard"><span class="label">Open dashboard</span></a>
+  </div>
+</header>
+
+<main class="account-page">
+  <p class="notice" data-icon="alert">
     Automated applying is against LinkedIn's User Agreement and accounts do get
     restricted for it. Keep the daily cap low, keep the delays long, and read
     the activity log before you trust a run.
   </p>
 
-  <section id="account">
-    <h2>1. Your jobDo account</h2>
-    <p class="hint">
-      Your resume and every setting live on your jobDo account and are edited on the jobDo website.
-      This browser downloads them before each run, and checks for changes every 30 minutes.
-    </p>
+  <section id="account" class="card">
+    <div class="section-head">
+      <span class="card-icon" data-icon="user"></span>
+      <div>
+        <h2>1. Your jobDo account</h2>
+        <p class="hint">
+          Your resume and every setting live on your jobDo account and are edited on the jobDo website.
+          This browser downloads them before each run, and checks for changes every 30 minutes.
+        </p>
+      </div>
+    </div>
 
     <div id="signedOut">
       <div class="grid">
-        <label>Email<input id="sy-email" type="email" autocomplete="username"></label>
-        <label>Password<input id="sy-password" type="password" autocomplete="current-password"></label>
+        <label for="sy-email">Email
+          <span class="field"><span data-icon="mail"></span><input id="sy-email" type="email" autocomplete="username" placeholder="you@example.com"></span>
+        </label>
+        <label for="sy-password">Password
+          <span class="field"><span data-icon="lock"></span><input id="sy-password" type="password" autocomplete="current-password" placeholder="Your jobDo password"></span>
+        </label>
       </div>
-      <div class="row add">
-        <button id="sy-login" class="primary" type="button">Sign in</button>
-        <button id="sy-register" class="ghost" type="button">Create account</button>
+      <div class="row actions">
+        <button id="sy-login" class="primary" type="button" data-icon="logIn">Sign in</button>
+        <button id="sy-register" class="ghost" type="button" data-icon="userPlus">Create account</button>
       </div>
       <details>
-        <summary>Server addresses</summary>
+        <summary><span data-icon="server"></span>Server addresses</summary>
         <p class="hint">Only change these if you run your own jobDo server.</p>
         <div class="grid">
-          <label>API address<input id="sy-url"></label>
-          <label>Website address<input id="sy-webUrl"></label>
+          <label for="sy-url">API address<input id="sy-url"></label>
+          <label for="sy-webUrl">Website address<input id="sy-webUrl"></label>
         </div>
       </details>
     </div>
 
     <div id="signedIn" class="hidden">
-      <div class="status-line ok" id="sy-who"></div>
-      <div class="status-line" id="sy-pulled"></div>
-      <div class="row add">
-        <button id="sy-openSettings" class="primary" type="button">Open settings on the website</button>
-        <button id="sy-pull" class="ghost" type="button">Download changes now</button>
-        <button id="sy-logout" class="ghost danger" type="button">Sign out</button>
+      <div class="who-card">
+        <span class="avatar" data-icon="user"></span>
+        <div class="who-lines">
+          <div class="status-line ok" id="sy-who"></div>
+          <div class="status-line" id="sy-pulled"></div>
+        </div>
+      </div>
+      <div class="row actions">
+        <button id="sy-openSettings" class="primary" type="button" data-icon="settings">Open settings on the website</button>
+        <button id="sy-pull" class="ghost" type="button" data-icon="refresh">Download changes now</button>
+        <button id="sy-logout" class="ghost danger" type="button" data-icon="logOut">Sign out</button>
       </div>
     </div>
 
-    <div class="status-line" id="sy-status"></div>
+    <div class="status-line" id="sy-status" role="status"></div>
   </section>
 
-  <section id="using" class="hidden">
-    <h2>2. What the next run will use</h2>
-    <p class="hint">This browser's copy of your account, as last downloaded. To change any of it, use the website.</p>
+  <section id="using" class="card hidden">
+    <div class="section-head">
+      <span class="card-icon" data-icon="sliders"></span>
+      <div>
+        <h2>2. What the next run will use</h2>
+        <p class="hint">This browser's copy of your account, as last downloaded. To change any of it, use the website.</p>
+      </div>
+    </div>
     <dl class="facts" id="facts"></dl>
   </section>
 
-  <section id="sites">
-    <h2>3. Unrecognised career sites</h2>
-    <p class="hint">
-      To fill application forms on career sites it does not recognise, the extension needs Chrome's
-      permission, which only this page can ask for. Whether it also presses Submit there is set on the website.
-    </p>
-    <div class="status-line" id="permStatus"></div>
-    <button id="grantSites" class="ghost" type="button">Allow access to other career sites</button>
-    <button id="revokeSites" class="ghost hidden" type="button">Remove that access</button>
+  <section id="sites" class="card">
+    <div class="section-head">
+      <span class="card-icon" data-icon="globe"></span>
+      <div>
+        <h2>3. Unrecognised career sites</h2>
+        <p class="hint">
+          To fill application forms on career sites it does not recognise, the extension needs Chrome's
+          permission, which only this page or the popup can ask for. Whether it also presses Submit there is set on the website.
+        </p>
+      </div>
+    </div>
+    <div class="perm">
+      <div class="status-line" id="permStatus"></div>
+      <button id="grantSites" class="primary" type="button" data-icon="shield">Allow access to other career sites</button>
+      <button id="revokeSites" class="ghost danger hidden" type="button" data-icon="x">Remove that access</button>
+    </div>
   </section>
 
-  <section id="history">
-    <h2>4. History on this computer</h2>
-    <p class="hint">Jobs listed here are never applied to twice. Every application is also saved to your account as it happens.</p>
-    <div class="row">
-      <button id="pushAll" class="ghost" type="button">Upload all of it to my account</button>
-      <button id="exportCsv" class="ghost" type="button">Export CSV</button>
-      <button id="clearHist" class="ghost danger" type="button">Clear history</button>
-      <span class="hint" id="histCount"></span>
+  <section id="history" class="card">
+    <div class="section-head">
+      <span class="card-icon" data-icon="history"></span>
+      <div>
+        <h2>4. History on this computer</h2>
+        <p class="hint">Jobs listed here are never applied to twice. Every application is also saved to your account as it happens.</p>
+      </div>
     </div>
-    <div class="status-line" id="histStatus"></div>
+    <div class="history-count"><span data-icon="briefcase"></span><span id="histCount"></span></div>
+    <div class="row actions">
+      <button id="pushAll" class="ghost" type="button" data-icon="upload">Upload all of it to my account</button>
+      <button id="exportCsv" class="ghost" type="button" data-icon="download">Export CSV</button>
+      <button id="clearHist" class="ghost danger" type="button" data-icon="trash">Clear history</button>
+    </div>
+    <div class="status-line" id="histStatus" role="status"></div>
   </section>
 </main>
 

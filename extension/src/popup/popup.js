@@ -2,8 +2,13 @@ import { getConfig, setConfig, getRun, getLog, clearLog } from '../shared/storag
 import { describeNextRun } from '../shared/schedule.js';
 import { isConnected, patchConfig, normalizeUrl } from '../shared/sync.js';
 import { ANY_SITE } from '../shared/ats.js';
+import { applyTheme } from '../shared/theme.js';
+import { hydrateIcons } from '../dashboard/icons.js';
 
 const $ = (id) => document.getElementById(id);
+
+hydrateIcons();
+applyTheme();
 
 async function render() {
   const cfg = await getConfig();
@@ -33,10 +38,10 @@ async function render() {
     warn.textContent = toggleError;
     warn.classList.remove('hidden');
   } else if (!isConnected(cfg)) {
-    warn.textContent = 'Sign in to your jobDo account first: press Account below.';
+    warn.textContent = 'Sign in to your jobDo account first: press the account button at the top.';
     warn.classList.remove('hidden');
   } else if (!cfg.resume.text) {
-    warn.textContent = 'Upload your resume on the jobDo website before starting: press Settings below.';
+    warn.textContent = 'Upload your resume on the jobDo website before starting: press the settings button at the top.';
     warn.classList.remove('hidden');
   } else if (cfg.safety.dryRun) {
     warn.textContent = 'Dry run is on: it will fill every form but never press Submit.';

@@ -3,59 +3,72 @@
 <head>
 <meta charset="utf-8">
 <title>jobDo</title>
+<link rel="stylesheet" href="../dashboard/dashboard.css">
 <link rel="stylesheet" href="popup.css">
 </head>
-<body>
-  <header>
-    <span class="dot" id="dot"></span>
-    <h1>jobDo</h1>
+<body class="viz-root">
+  <header class="p-head">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f9bf0"/><stop offset="1" stop-color="#2554c7"/></linearGradient></defs>
+        <rect width="32" height="32" rx="9" fill="url(#logoGrad)"/>
+        <path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-text">
+        <span class="brand-name">job<span>Do</span></span>
+        <span class="brand-sub" id="resumeName"></span>
+      </span>
+    </div>
+    <div class="p-head-actions">
+      <button id="dashboard" class="icon-btn" type="button" title="Dashboard" aria-label="Dashboard" data-icon="dashboard"></button>
+      <button id="options" class="icon-btn" type="button" title="Settings (on the website)" aria-label="Settings" data-icon="settings"></button>
+      <button id="account" class="icon-btn" type="button" title="Account" aria-label="Account" data-icon="user"></button>
+    </div>
   </header>
 
-  <div id="warning" class="warn hidden"></div>
-  <div id="access" class="warn hidden">
-    Career sites jobDo does not recognise are handed to you until you let it work on them.
-    <button id="allowSites" class="link">Allow</button>
+  <div id="warning" class="banner warn hidden" role="status"></div>
+  <div id="access" class="banner info hidden">
+    <span>Career sites jobDo does not recognise are handed to you until you let it work on them.</span>
+    <button id="allowSites" class="mini" type="button">Allow</button>
   </div>
 
-  <section class="status">
-    <div class="phase" id="phase">idle</div>
+  <section class="p-card status">
+    <div class="status-top">
+      <span class="dot" id="dot"></span>
+      <span class="phase" id="phase">idle</span>
+    </div>
     <div class="job" id="job"></div>
     <div class="counts">
-      <div><b id="c-applied">0</b><span>applied</span></div>
-      <div><b id="c-skipped">0</b><span>skipped</span></div>
-      <div><b id="c-failed">0</b><span>failed</span></div>
-      <div><b id="c-seen">0</b><span>seen</span></div>
+      <div class="count applied"><b id="c-applied">0</b><span>applied</span></div>
+      <div class="count"><b id="c-skipped">0</b><span>skipped</span></div>
+      <div class="count failed"><b id="c-failed">0</b><span>failed</span></div>
+      <div class="count"><b id="c-seen">0</b><span>seen</span></div>
     </div>
-    <div class="today" id="today"></div>
+    <div class="today"><span data-icon="calendar"></span><span id="today"></span></div>
   </section>
 
-  <section class="controls">
-    <label class="switch">
+  <section class="p-card controls">
+    <label class="toggle">
       <input type="checkbox" id="dryRun">
-      <span>Dry run <em>walk the flow, never submit</em></span>
+      <span class="track" aria-hidden="true"></span>
+      <span class="t-text">Dry run <em>walk the flow, never submit</em></span>
     </label>
-    <label class="switch">
+    <label class="toggle">
       <input type="checkbox" id="review">
-      <span>Ask me before each submit</span>
+      <span class="track" aria-hidden="true"></span>
+      <span class="t-text">Ask me before each submit <em>you press Submit yourself</em></span>
     </label>
-    <button id="start" class="primary">Start applying</button>
-    <button id="stop" class="danger hidden">Stop</button>
+    <button id="start" class="go" type="button" data-icon="play">Start applying</button>
+    <button id="stop" class="stop hidden" type="button" data-icon="square">Stop</button>
   </section>
 
-  <section class="log">
+  <section class="p-card log">
     <div class="log-head">
-      <span>Activity</span>
-      <button id="clearLog" class="link">clear</button>
+      <span class="log-title"><span data-icon="activity"></span>Activity</span>
+      <button id="clearLog" class="mini ghosty" type="button">Clear</button>
     </div>
     <ul id="logList"></ul>
   </section>
-
-  <footer>
-    <button id="dashboard" class="link">Dashboard</button>
-    <button id="options" class="link">Settings</button>
-    <button id="account" class="link">Account</button>
-    <span id="resumeName"></span>
-  </footer>
 
   <script type="module" src="popup.js"></script>
 </body>

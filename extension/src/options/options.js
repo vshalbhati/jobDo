@@ -7,8 +7,15 @@ import { SITES } from '../shared/sites.js';
 import { ANY_SITE } from '../shared/ats.js';
 import { describeNextRun } from '../shared/schedule.js';
 import { authenticate, whoAmI, pushAll, normalizeUrl, originOf, isConnected } from '../shared/sync.js';
+import { applyTheme, toggleTheme } from '../shared/theme.js';
+import { hydrateIcons } from '../dashboard/icons.js';
 
 const $ = (id) => document.getElementById(id);
+
+hydrateIcons();
+applyTheme();
+$('theme').onclick = toggleTheme;
+
 let cfg = null;
 
 async function load() {

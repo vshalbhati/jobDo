@@ -343,48 +343,30 @@ window.LEA = window.LEA || {};
 
   // ------------------------------------------------------- confirm overlay
 
+  // Closing it, or leaving it for five minutes, counts as skipping the job.
   function askUserConfirm(job) {
     return new Promise((resolve) => {
-      const host = document.createElement('div');
-      host.id = 'lea-confirm';
-      host.innerHTML = [
-        '<div class="lea-box">',
-        '<div class="lea-t">Ready to submit</div>',
-        '<div class="lea-j"></div>',
-        '<div class="lea-b">',
-        '<button class="lea-yes">Submit</button>',
-        '<button class="lea-no">Skip this job</button>',
-        '</div></div>'
-      ].join('');
-      Object.assign(host.style, {
-        position: 'fixed', inset: 'auto 16px 16px auto', zIndex: 2147483647,
-        font: '14px -apple-system, Segoe UI, Roboto, sans-serif'
+      let done = false;
+      const finish = (v) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        closePanel();
+        resolve(v);
+      };
+      const closePanel = D.panel({
+        id: 'lea-confirm',
+        where: 'bottom',
+        title: 'Ready to submit',
+        body: job.title + (job.company ? ' at ' + job.company : ''),
+        note: 'Everything is filled in. Check the form, then submit it or skip this job.',
+        actions: [
+          { label: 'Submit', primary: true, onClick: () => finish('submit') },
+          { label: 'Skip this job', onClick: () => finish('skip') }
+        ],
+        onClose: () => finish('skip')
       });
-      const box = host.querySelector('.lea-box');
-      Object.assign(box.style, {
-        background: '#fff', color: '#1b1f23', border: '1px solid #0a66c2',
-        borderRadius: '10px', padding: '14px 16px', width: '300px',
-        boxShadow: '0 8px 28px rgba(0,0,0,.25)'
-      });
-      host.querySelector('.lea-t').style.fontWeight = '600';
-      host.querySelector('.lea-j').textContent = job.title + ' - ' + job.company;
-      Object.assign(host.querySelector('.lea-j').style, { margin: '6px 0 12px', fontSize: '13px', color: '#56687a' });
-      host.querySelector('.lea-b').style.display = 'flex';
-      host.querySelector('.lea-b').style.gap = '8px';
-      for (const b of host.querySelectorAll('button')) {
-        Object.assign(b.style, {
-          flex: '1', padding: '8px 10px', borderRadius: '16px', cursor: 'pointer',
-          border: '1px solid #0a66c2', background: '#fff', color: '#0a66c2', fontWeight: '600'
-        });
-      }
-      const yes = host.querySelector('.lea-yes');
-      Object.assign(yes.style, { background: '#0a66c2', color: '#fff' });
-
-      const finish = (v) => { host.remove(); clearTimeout(timer); resolve(v); };
-      yes.onclick = () => finish('submit');
-      host.querySelector('.lea-no').onclick = () => finish('skip');
       const timer = setTimeout(() => finish('skip'), 5 * 60 * 1000);
-      document.body.appendChild(host);
     });
   }
 
