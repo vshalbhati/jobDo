@@ -26,15 +26,35 @@ existing rows default to `linkedin`. `0005` keeps the posting text with each
 application and adds your match rating (`feedback`), which the dashboard sets
 and `ranker/evaluate.py` checks the ranker against.
 
-## 3. Turn off email confirmation (optional)
+## 3. Confirm new accounts with an emailed code
 
-**Authentication → Providers → Email**. If "Confirm email" is on, registering
-returns a "check your email" response instead of a session, and you have to
-click the link before you can sign in. For a personal deployment it is usually
-easier to turn it off.
+Creating an account emails a 6-digit code; the account exists once the code is
+entered, on the website or on the extension's Account page. Three settings make
+that happen:
 
-If you leave it on, the backend handles it: `/api/auth/register` answers `202`
-with a message, and both the web login page and the extension show it.
+1. **Authentication → Sign In / Providers → Email → Confirm email: on.**
+   Without it, accounts are created on the spot with no email at all.
+2. **Authentication → Emails → Templates → Confirm signup:** send the code,
+   not a link. Replace the body with something like:
+
+   ```html
+   <h2>Your jobDo code</h2>
+   <p>Enter this code to finish creating your account:</p>
+   <p style="font-size:28px;font-weight:700;letter-spacing:6px">{{ .Token }}</p>
+   <p>It expires in an hour. If you did not sign up for jobDo, ignore this email.</p>
+   ```
+
+   The template must not contain `{{ .ConfirmationURL }}`, or people get a link
+   the site does not use.
+3. **Authentication → Emails → SMTP Settings: set up your own email provider**
+   (Resend, Brevo, SendGrid, Amazon SES, or a Gmail app password). Supabase's
+   built-in sender only delivers to your project's own team members, a few an
+   hour, so anyone else would never get a code.
+
+The code is good for an hour (**Email OTP Expiration** on the Email provider
+page) and "Send a new code" can be pressed once a minute. The backend calls
+`verifyOtp`, which confirms the address and signs in at once; ten wrong codes
+from one address lock that address out for fifteen minutes.
 
 ## 4. Copy the keys
 

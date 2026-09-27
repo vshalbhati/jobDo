@@ -68,11 +68,24 @@
         <p class="forgot-row"><button id="forgot" type="button" class="link">Forgot your password?</button></p>
 
         <p id="error" class="error" role="alert" hidden></p>
-        <p class="resend-row"><button id="resend" type="button" class="link" hidden>Resend the confirmation email</button></p>
         <button id="submit" type="submit" class="primary">Sign in</button>
       </form>
 
-      <p class="swap">
+      <!-- Step two of creating an account: the code Supabase emailed. -->
+      <form id="verifyForm" novalidate hidden>
+        <label for="code">Confirmation code</label>
+        <input id="code" class="code-input" name="code" inputmode="numeric" autocomplete="one-time-code"
+               pattern="[0-9]*" maxlength="10" placeholder="••••••" required>
+        <p id="verifyMsg" class="error" role="alert" hidden></p>
+        <button id="verifySubmit" type="submit" class="primary">Confirm and continue</button>
+        <p class="verify-links">
+          <button id="resendCode" type="button" class="link">Send a new code</button>
+          <span aria-hidden="true">·</span>
+          <button id="changeEmail" type="button" class="link">Use a different email</button>
+        </p>
+      </form>
+
+      <p class="swap" id="swapRow">
         <span id="swapText">No account yet?</span>
         <button id="swap" type="button" class="link">Create one</button>
       </p>

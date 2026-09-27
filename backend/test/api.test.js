@@ -76,7 +76,7 @@ const { app } = await import('../src/server.js');
 const auth = await import('../src/auth.js');
 // Clears both the shared (Redis) and the per-instance counts.
 const resetRateLimits = () => { auth.resetRateLimits(); fakeRedis.store.clear(); };
-const { setRequireConfirmation } = await import('../src/providers.memory.js');
+const { setRequireConfirmation, confirmationCodeFor } = await import('../src/providers.memory.js');
 
 let pass = 0, fail = 0;
 const ok = (name, cond, got) => {
@@ -563,13 +563,48 @@ r = await req('POST', '/api/auth/login', { body: { email: 'unconfirmed@example.c
 ok('a wrong password on an unconfirmed account still says nothing',
   r.status === 401 && !r.data.needsConfirmation, { status: r.status, data: r.data });
 
+section('confirming an account with the emailed code');
+const firstCode = confirmationCodeFor('unconfirmed@example.com');
+ok('signing up sends a 6-digit code', /^\d{6}$/.test(firstCode || ''), firstCode);
+
+r = await req('POST', '/api/auth/verify', { body: { email: 'unconfirmed@example.com', code: 'abc', client: 'web' } });
+ok('a code that is not digits is refused before it is tried', r.status === 400 && /6 digits/.test(r.data.error), r.data);
+const wrongCode = firstCode === '000000' ? '111111' : '000000';
+r = await req('POST', '/api/auth/verify', { body: { email: 'unconfirmed@example.com', code: wrongCode, client: 'web' } });
+ok('a wrong code is refused', r.status === 400 && /wrong or has expired/.test(r.data.error), r.data);
+r = await req('POST', '/api/auth/verify', { body: { email: 'nobody-at-all@example.com', code: '123456', client: 'web' } });
+ok('  with the same answer for an address that has no account', r.status === 400 && /wrong or has expired/.test(r.data.error), r.data);
+
 r = await req('POST', '/api/auth/resend-confirmation', { body: { email: 'unconfirmed@example.com' } });
-ok('resend confirmation is accepted', r.status === 200 && r.data.ok === true, r.data);
+ok('"send a new code" is accepted', r.status === 200 && r.data.ok === true && /new code/.test(r.data.message), r.data);
 r = await req('POST', '/api/auth/resend-confirmation', { body: { email: 'nobody-at-all@example.com' } });
 ok('  and answers identically for an unknown address', r.status === 200 && r.data.ok === true, r.data);
+const secondCode = confirmationCodeFor('unconfirmed@example.com');
+if (secondCode !== firstCode) {
+  r = await req('POST', '/api/auth/verify', { body: { email: 'unconfirmed@example.com', code: firstCode, client: 'web' } });
+  ok('  and the old code stops working', r.status === 400, r.data);
+}
 
+r = await req('POST', '/api/auth/verify', { body: { email: 'Unconfirmed@Example.com', code: ' ' + secondCode.slice(0, 3) + ' ' + secondCode.slice(3), client: 'web' } });
+ok('the right code confirms the account and signs in at once', r.status === 200 && !!r.data.token, { status: r.status, data: r.data });
+ok('  with the session cookies for the website', /sb-access/.test(cookiesFrom(r).join(' ')), cookiesFrom(r));
+r = await req('POST', '/api/auth/verify', { body: { email: 'unconfirmed@example.com', code: secondCode, client: 'web' } });
+ok('  and the code cannot be used twice', r.status === 400, r.data);
 r = await req('POST', '/api/auth/login', { body: { email: 'unconfirmed@example.com', password: PASSWORD, client: 'web' } });
 ok('once confirmed, the same credentials work', r.status === 200 && !!r.data.token, { status: r.status, data: r.data });
+
+r = await req('POST', '/api/auth/register', { body: { email: 'from-extension@example.com', password: PASSWORD, client: 'extension' } });
+r = await req('POST', '/api/auth/verify', { body: { email: 'from-extension@example.com', code: confirmationCodeFor('from-extension@example.com'), client: 'extension' } });
+ok('the extension gets its tokens in the body, and no cookie', r.status === 200 && !!r.data.refreshToken && cookiesFrom(r).length === 0, { data: r.data, cookies: cookiesFrom(r) });
+
+await req('POST', '/api/auth/register', { body: { email: 'guesser@example.com', password: PASSWORD } });
+let last;
+for (let i = 0; i < 11; i++) {
+  last = await req('POST', '/api/auth/verify', { body: { email: 'guesser@example.com', code: String(100000 + i), client: 'web' } });
+}
+ok('guessing codes is cut off after 10 tries', last.status === 429 && !!last.headers.get('retry-after'), { status: last.status, data: last.data });
+r = await req('POST', '/api/auth/verify', { body: { email: 'guesser@example.com', code: confirmationCodeFor('guesser@example.com'), client: 'web' } });
+ok('  even the right code is refused until the wait is over', r.status === 429, r.status);
 setRequireConfirmation(false);
 resetRateLimits();
 

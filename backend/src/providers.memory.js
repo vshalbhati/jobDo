@@ -21,6 +21,18 @@ const settingsRows = new Map();   // user id -> { min_score, updated_at }
 let requireConfirmation = false;
 export function setRequireConfirmation(v) { requireConfirmation = !!v; }
 
+// The confirmation code Supabase would have emailed, for tests to read back.
+export function confirmationCodeFor(email) {
+  const user = usersByEmail.get(String(email).toLowerCase());
+  return user ? user.code || null : null;
+}
+
+const CODE_TTL_MS = 3600_000;   // Supabase's default OTP lifetime
+const newCode = (user) => {
+  user.code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  user.codeSentAt = Date.now();
+};
+
 export function resetMemory() {
   usersByEmail.clear(); usersById.clear(); tokens.clear(); refreshTokens.clear();
   rows.length = 0; resumeRows.length = 0; files.clear(); settingsRows.clear();
@@ -41,6 +53,7 @@ export const auth = {
     const key = email.toLowerCase();
     if (usersByEmail.has(key)) throw err('An account with that email already exists.', 422);
     const user = { id: crypto.randomUUID(), email: key, password, confirmed: !requireConfirmation };
+    if (!user.confirmed) newCode(user);
     usersByEmail.set(key, user);
     usersById.set(user.id, user);
     // No session until the email is confirmed - exactly what Supabase does.
@@ -82,9 +95,24 @@ export const auth = {
 
   async resetPassword() { /* nothing to send in memory */ },
 
+  // A new code replaces the old one, as Supabase's does.
   async resendConfirmation(email) {
     const user = usersByEmail.get(String(email).toLowerCase());
-    if (user) user.confirmed = true;   // stands in for clicking the link
+    if (user && !user.confirmed) newCode(user);
+  },
+
+  async verifySignup(email, code) {
+    const user = usersByEmail.get(String(email).toLowerCase());
+    const valid = user && !user.confirmed && user.code && user.code === String(code) &&
+      Date.now() - user.codeSentAt < CODE_TTL_MS;
+    if (!valid) {
+      const e = err('Token has expired or is invalid', 403);
+      e.code = 'otp_expired';
+      throw e;
+    }
+    user.confirmed = true;
+    delete user.code;
+    return { user: { id: user.id, email: user.email }, session: issue(user.id) };
   }
 };
 

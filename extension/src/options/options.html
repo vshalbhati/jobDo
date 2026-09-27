@@ -54,26 +54,47 @@
     </div>
 
     <div id="signedOut">
-      <div class="grid">
-        <label for="sy-email">Email
-          <span class="field"><span data-icon="mail"></span><input id="sy-email" type="email" autocomplete="username" placeholder="you@example.com"></span>
-        </label>
-        <label for="sy-password">Password
-          <span class="field"><span data-icon="lock"></span><input id="sy-password" type="password" autocomplete="current-password" placeholder="Your jobDo password"></span>
-        </label>
-      </div>
-      <div class="row actions">
-        <button id="sy-login" class="primary" type="button" data-icon="logIn">Sign in</button>
-        <button id="sy-register" class="ghost" type="button" data-icon="userPlus">Create account</button>
-      </div>
-      <details>
-        <summary><span data-icon="server"></span>Server addresses</summary>
-        <p class="hint">Only change these if you run your own jobDo server.</p>
+      <div id="credentials">
         <div class="grid">
-          <label for="sy-url">API address<input id="sy-url"></label>
-          <label for="sy-webUrl">Website address<input id="sy-webUrl"></label>
+          <label for="sy-email">Email
+            <span class="field"><span data-icon="mail"></span><input id="sy-email" type="email" autocomplete="username" placeholder="you@example.com"></span>
+          </label>
+          <label for="sy-password">Password
+            <span class="field"><span data-icon="lock"></span><input id="sy-password" type="password" autocomplete="current-password" placeholder="Your jobDo password"></span>
+          </label>
         </div>
-      </details>
+        <div class="row actions">
+          <button id="sy-login" class="primary" type="button" data-icon="logIn">Sign in</button>
+          <button id="sy-register" class="ghost" type="button" data-icon="userPlus">Create account</button>
+        </div>
+        <details>
+          <summary><span data-icon="server"></span>Server addresses</summary>
+          <p class="hint">Only change these if you run your own jobDo server.</p>
+          <div class="grid">
+            <label for="sy-url">API address<input id="sy-url"></label>
+            <label for="sy-webUrl">Website address<input id="sy-webUrl"></label>
+          </div>
+        </details>
+      </div>
+
+      <!-- Step two of creating an account: the code emailed to confirm it. -->
+      <div id="verifyBox" class="verify-box hidden">
+        <div class="verify-head">
+          <span class="card-icon" data-icon="mail"></span>
+          <div>
+            <b>Check your email</b>
+            <p class="hint" id="verifyText"></p>
+          </div>
+        </div>
+        <label for="sy-code">Confirmation code
+          <input id="sy-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="••••••">
+        </label>
+        <div class="row actions">
+          <button id="sy-verify" class="primary" type="button" data-icon="check">Confirm and sign in</button>
+          <button id="sy-resend" class="ghost" type="button" data-icon="mail"><span id="sy-resendLabel">Send a new code</span></button>
+          <button id="sy-changeEmail" class="ghost" type="button">Use a different email</button>
+        </div>
+      </div>
     </div>
 
     <div id="signedIn" class="hidden">

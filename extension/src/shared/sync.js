@@ -39,27 +39,44 @@ async function call(serverUrl, path, { method = 'GET', body, token, timeoutMs = 
   if (!res.ok) {
     const err = new Error(data.error || ('Server returned ' + res.status));
     err.status = res.status;
+    err.data = data;          // e.g. needsConfirmation on an unconfirmed account
     throw err;
   }
   return data;
 }
 
+const sessionFrom = (data) => ({
+  token: data.token,
+  refreshToken: data.refreshToken,
+  email: data.email,
+  expiresAt: Date.now() + (data.expiresIn || 3600) * 1000
+});
+
+// A new account whose email needs confirming throws with pendingConfirmation:
+// a code is on its way, and verifyCode() finishes the sign-up with it.
 export async function authenticate(serverUrl, email, password, mode = 'login') {
   const data = await call(serverUrl, '/auth/' + mode, {
     method: 'POST',
     body: { email, password, client: 'extension' }
   });
   if (data.pendingConfirmation) {
-    const e = new Error(data.message || 'Confirm your email address, then connect again.');
+    const e = new Error(data.message || 'We sent a code to your email. Enter it to finish creating the account.');
     e.pendingConfirmation = true;
     throw e;
   }
-  return {
-    token: data.token,
-    refreshToken: data.refreshToken,
-    email: data.email,
-    expiresAt: Date.now() + (data.expiresIn || 3600) * 1000
-  };
+  return sessionFrom(data);
+}
+
+// The code from the confirmation email: confirms the account and signs in.
+export async function verifyCode(serverUrl, email, code) {
+  return sessionFrom(await call(serverUrl, '/auth/verify', {
+    method: 'POST',
+    body: { email, code, client: 'extension' }
+  }));
+}
+
+export async function resendCode(serverUrl, email) {
+  return call(serverUrl, '/auth/resend-confirmation', { method: 'POST', body: { email } });
 }
 
 // Access tokens last about an hour - far less than a long run - so every

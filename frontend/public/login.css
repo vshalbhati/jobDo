@@ -114,8 +114,17 @@ button { font: inherit; cursor: pointer; }
 }
 .foot svg { width: 15px; height: 15px; flex: none; }
 .forgot-row { margin: -6px 0 14px; text-align: right; }
-.resend-row { margin: -8px 0 14px; text-align: center; }
-.resend-row:has([hidden]) { display: none; }
+
+/* The confirmation code: large, spaced digits. */
+input.code-input {
+  height: 54px; margin-bottom: 14px; padding: 0 12px; text-align: center;
+  font-size: 24px; font-weight: 650; letter-spacing: .45em; font-variant-numeric: tabular-nums;
+}
+input.code-input::placeholder { letter-spacing: .35em; }
+.verify-links { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 18px 0 0; font-size: 13px; color: var(--muted); }
+.verify-links .link { font-size: 13px; }
+.link:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+[hidden] { display: none !important; }
 
 @media (max-width: 860px) {
   .split { grid-template-columns: 1fr; }

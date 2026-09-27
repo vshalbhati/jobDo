@@ -6,7 +6,7 @@ import { defaultConfig } from '../shared/defaults.js';
 import { SITES } from '../shared/sites.js';
 import { ANY_SITE } from '../shared/ats.js';
 import { describeNextRun } from '../shared/schedule.js';
-import { authenticate, whoAmI, pushAll, normalizeUrl, originOf, isConnected } from '../shared/sync.js';
+import { authenticate, verifyCode, resendCode, whoAmI, pushAll, normalizeUrl, originOf, isConnected } from '../shared/sync.js';
 import { applyTheme, toggleTheme } from '../shared/theme.js';
 import { hydrateIcons } from '../dashboard/icons.js';
 
@@ -84,24 +84,109 @@ async function connect(mode) {
 
   status(mode === 'register' ? 'Creating the account…' : 'Signing in…');
   try {
-    const session = await authenticate(serverUrl, email, password, mode);
-    cfg = await setConfig({
-      sync: {
-        enabled: true, serverUrl, webUrl, email: session.email, token: session.token,
-        refreshToken: session.refreshToken, expiresAt: session.expiresAt,
-        lastError: '', pending: 0, lastPullError: ''
-      }
-    });
-    $('sy-password').value = '';
-    status('Signed in. Downloading your settings and resume…');
-    await pullNow();
-    status(cfg.resume.text
-      ? 'Signed in. Your settings and resume are downloaded.'
-      : 'Signed in. Now upload your resume on the website: press "Open settings on the website".', 'ok');
+    await finishSignIn(await authenticate(serverUrl, email, password, mode), serverUrl, webUrl);
   } catch (e) {
+    // A new account, or one never confirmed: the code from the email finishes it.
+    if (e.pendingConfirmation || (e.status === 403 && e.data && e.data.needsConfirmation)) {
+      showVerify({ serverUrl, webUrl, email }, e.message);
+      if (e.pendingConfirmation) startCooldown(60);
+      return;
+    }
     status(e.message, 'err');
   }
 }
+
+async function finishSignIn(session, serverUrl, webUrl) {
+  cfg = await setConfig({
+    sync: {
+      enabled: true, serverUrl, webUrl, email: session.email, token: session.token,
+      refreshToken: session.refreshToken, expiresAt: session.expiresAt,
+      lastError: '', pending: 0, lastPullError: ''
+    }
+  });
+  $('sy-password').value = '';
+  status('Signed in. Downloading your settings and resume…');
+  await pullNow();
+  status(cfg.resume.text
+    ? 'Signed in. Your settings and resume are downloaded.'
+    : 'Signed in. Now upload your resume on the website: press "Open settings on the website".', 'ok');
+}
+
+// --------------------------------------------- confirming a new account
+
+let pending = null;   // { serverUrl, webUrl, email } while a code is awaited
+let cooldown = null;
+
+function showVerify(p, text) {
+  pending = p;
+  $('credentials').classList.add('hidden');
+  $('verifyBox').classList.remove('hidden');
+  $('verifyText').textContent = text;
+  $('sy-code').value = '';
+  $('sy-code').focus();
+  status('');
+}
+
+function hideVerify() {
+  pending = null;
+  $('verifyBox').classList.add('hidden');
+  $('credentials').classList.remove('hidden');
+}
+
+// Supabase sends at most one code a minute; the button says when it can again.
+function startCooldown(seconds) {
+  clearInterval(cooldown);
+  let left = seconds;
+  const paint = () => {
+    $('sy-resend').disabled = left > 0;
+    $('sy-resendLabel').textContent = left > 0 ? 'Send a new code (' + left + 's)' : 'Send a new code';
+  };
+  paint();
+  cooldown = setInterval(() => {
+    left -= 1;
+    paint();
+    if (left <= 0) clearInterval(cooldown);
+  }, 1000);
+}
+
+$('sy-code').oninput = (e) => {
+  const digits = e.target.value.replace(/\D+/g, '').slice(0, 10);
+  if (digits !== e.target.value) e.target.value = digits;
+};
+$('sy-code').onkeydown = (e) => { if (e.key === 'Enter') $('sy-verify').click(); };
+
+$('sy-verify').onclick = async () => {
+  const code = $('sy-code').value.replace(/\D+/g, '');
+  if (code.length < 6) return status('Enter the code from the email: it is 6 digits.', 'err');
+  $('sy-verify').disabled = true;
+  status('Checking the code…');
+  try {
+    const { serverUrl, webUrl, email } = pending;
+    const session = await verifyCode(serverUrl, email, code);
+    hideVerify();
+    await finishSignIn(session, serverUrl, webUrl);
+  } catch (e) {
+    status(e.message, 'err');
+  } finally {
+    $('sy-verify').disabled = false;
+  }
+};
+
+$('sy-resend').onclick = async () => {
+  startCooldown(60);
+  try {
+    const res = await resendCode(pending.serverUrl, pending.email);
+    status(res.message || 'A new code is on its way.', 'ok');
+  } catch (e) {
+    status(e.message, 'err');
+  }
+};
+
+$('sy-changeEmail').onclick = () => {
+  hideVerify();
+  status('');
+  $('sy-email').focus();
+};
 
 async function pullNow() {
   const res = await chrome.runtime.sendMessage({ type: 'PULL_NOW' });

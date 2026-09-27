@@ -41,6 +41,21 @@ export const auth = {
   async signUp(email, password) {
     const { data, error } = await anonClient().auth.signUp({ email, password });
     if (error) throw fail(error, 'Could not create the account.');
+    // With email confirmation on, a sign-up for an address that already has
+    // a confirmed account gets a stand-in user with no identities and no
+    // email - so the code the person would wait for never comes.
+    if (!data.session && data.user && Array.isArray(data.user.identities) && !data.user.identities.length) {
+      throw fail({ message: 'User already registered' }, 'User already registered');
+    }
+    return { user: data.user, session: data.session };
+  },
+
+  // The code from the confirmation email ({{ .Token }} in Supabase's "Confirm
+  // signup" template). Confirms the address and signs in, in one step.
+  async verifySignup(email, code) {
+    const { data, error } = await anonClient().auth.verifyOtp({ email, token: code, type: 'email' });
+    if (error) throw fail(error, 'That code is wrong or has expired.');
+    if (!data || !data.session) throw fail(null, 'That code is wrong or has expired.');
     return { user: data.user, session: data.session };
   },
 

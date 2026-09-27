@@ -22,12 +22,12 @@ api.post('/auth/register', async (req, res, next) => {
     const { user, session } = await auth.signUp(email, req.body.password);
 
     // With email confirmation switched on, Supabase creates the user but
-    // issues no session until they click the link.
+    // issues no session until the code it emailed comes back (/auth/verify).
     if (!session) {
       return res.status(202).json({
         pendingConfirmation: true,
         email,
-        message: 'Check your email to confirm the account, then sign in.'
+        message: 'We sent a code to ' + email + '. Enter it to confirm your email and finish creating the account.'
       });
     }
     return sendSession(req, res, user, session);
@@ -62,7 +62,7 @@ api.post('/auth/login', async (req, res, next) => {
       // has already been accepted.
       if (isUnconfirmed(e)) {
         return res.status(403).json({
-          error: 'That account still needs its email confirmed. Check your inbox for the link.',
+          error: 'That account still needs its email confirmed. Enter the code from your email, or send a new one.',
           needsConfirmation: true,
           email
         });
@@ -117,7 +117,39 @@ api.post('/auth/resend-confirmation', async (req, res, next) => {
     if (email && auth.resendConfirmation) {
       await auth.resendConfirmation(email, req.body.redirectTo || '').catch(() => {});
     }
-    res.json({ ok: true, message: 'If that account is waiting on confirmation, another email is on its way.' });
+    res.json({ ok: true, message: 'If that account is waiting on confirmation, a new code is on its way.' });
+  } catch (e) { next(e); }
+});
+
+// The code from the confirmation email. It confirms the address and signs in
+// at once, so the account is ready the moment the code is accepted. Wrong
+// codes count against the same limit as wrong passwords, so a six-digit code
+// cannot be guessed; the answer is the same whether or not the account exists.
+api.post('/auth/verify', async (req, res, next) => {
+  try {
+    const email = validateEmail(req.body.email);
+    const code = String(req.body.code || '').replace(/\s+/g, '');
+    if (!email || !/^\d{6,10}$/.test(code)) {
+      return res.status(400).json({ error: 'Enter the code from the email: it is 6 digits.' });
+    }
+
+    const key = 'verify|' + (req.ip || 'unknown') + '|' + email;
+    const limit = await rateLimit(key);
+    if (!limit.allowed) {
+      res.set('Retry-After', String(limit.retryAfter));
+      return res.status(429).json({
+        error: 'Too many wrong codes. Try again in ' + Math.ceil(limit.retryAfter / 60) + ' minutes, or send a new code.'
+      });
+    }
+
+    let result;
+    try {
+      result = await auth.verifySignup(email, code);
+    } catch {
+      return res.status(400).json({ error: 'That code is wrong or has expired. Check it, or send a new one.' });
+    }
+    await clearRateLimit(key);
+    return sendSession(req, res, result.user, result.session);
   } catch (e) { next(e); }
 });
 

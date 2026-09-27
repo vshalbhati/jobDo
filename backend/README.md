@@ -70,6 +70,8 @@ There is no database to provision: Supabase is the database.
 | POST | `/api/auth/login` | Rate limited: 10 failures per email+IP per 15 min |
 | POST | `/api/auth/refresh` | Access tokens last ~1 hour; this renews them |
 | POST | `/api/auth/logout` | |
+| POST | `/api/auth/verify` | `{email, code, client}`: the code from the confirmation email. Confirms the account and signs in, like `/login`. Ten wrong codes lock that address for 15 minutes |
+| POST | `/api/auth/resend-confirmation` | `{email}`: a new code. Always the same answer, so it cannot enumerate accounts |
 | POST | `/api/auth/reset-password` | Always the same answer, so it cannot enumerate accounts |
 | GET | `/api/me` | |
 | POST | `/api/applications` | `{records:[...]}`, upserted on `(user, jobId)` — re-sending is safe. A record's `description` (the posting, up to 12,000 characters) is kept; a record without one leaves the saved one alone |
