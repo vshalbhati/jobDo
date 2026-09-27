@@ -24,7 +24,8 @@ window.LEA = window.LEA || {};
   // application - so the Apply button still needs pressing.
   const APPLICANT_FIELD = /e-?mail|phone|mobile|first.?name|last.?name|full.?name|resume|r[ée]sum[ée]|\bcv\b/i;
   const NOT_APPLICATION = /search|filter|alert|newsletter|subscribe/i;
-  const DONE_TEXT = /thank you|thanks for (applying|your)|application (has been )?(received|submitted|sent|complete)|successfully (applied|submitted)|we(’|')?ll be in touch|we have received your/i;
+  const DONE_TEXT = /thank you|thanks for (applying|your)|application (for .{1,80}? )?(has been |was )?(received|submitted|sent|complete)|successfully (applied|submitted)|we(’|')?ll be in touch|we have received your|\bcongratulations\b/i;
+  const DONE_TEXT_ALL = new RegExp(DONE_TEXT.source, 'gi');
 
   // ------------------------------------------------------------- discovery
 
@@ -91,11 +92,11 @@ window.LEA = window.LEA || {};
   const buttonLabel = (el) => (text(el) || el.value || el.getAttribute('aria-label') || '')
     .replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '');       // "Apply now →"
 
-  // Something that opens the form rather than belonging to one. A button inside
-  // a form that already has fields is that form's own submit, and pressing it
-  // on an empty form is the last thing wanted. Labels already pressed are left
-  // out, so a second "Apply" further down the page is not pressed again.
-  function revealButton(tried) {
+  // Things that open the form rather than belong to one, best first. A button
+  // inside a form that already has fields is that form's own submit, and
+  // pressing it on an empty form is the last thing wanted. Labels already
+  // pressed are left out, so a second "Apply" further down is not pressed again.
+  function revealButtons(tried) {
     const found = Array.from(document.querySelectorAll('button, a, [role="button"], input[type="button"]'))
       .filter((el) => visible(el) && REVEAL_TEXT.test(buttonLabel(el)))
       .filter((el) => !tried.has(buttonLabel(el).toLowerCase()))
@@ -105,7 +106,78 @@ window.LEA = window.LEA || {};
     // first, and the job's own button before a site-wide one in the header.
     const rank = (el) => (/apply|interested|application/i.test(buttonLabel(el)) ? 0 : 2) +
       (el.closest('nav, header, footer') ? 1 : 0);
-    return found.sort((a, b) => rank(a) - rank(b))[0] || null;
+    return found.sort((a, b) => rank(a) - rank(b));
+  }
+
+  // ---------------------------------------------------- one job among many
+  //
+  // A company's careers page often lists every opening, each with its own
+  // Apply button. The first one is some other job; the right one is the card
+  // whose title is this job's.
+
+  const ROLE_WORD = /\b(developer|engineer|programmer|architect|analyst|manager|consultant|designer|tester|sdet|scientist|administrator|specialist|lead|intern|associate|executive|officer|coordinator|master|devops|qa)\b/i;
+  const TITLE_NOISE = new Set(('hiring urgent urgently immediate immediately joiner joiners opening openings walk walkin ' +
+    'drive for the an of and to at with job role position vacancy remote hybrid onsite wfh wfo').split(' '));
+  const TITLE_SAME = { sr: 'senior', snr: 'senior', jr: 'junior', dev: 'developer', engg: 'engineer', engr: 'engineer', mgr: 'manager' };
+  const TITLE_MATCH = 0.75;   // share of title words two titles must have in common
+  const TITLE_MARGIN = 0.15;  // and by how much the best must beat the next
+
+  function titleWords(title) {
+    const out = new Set();
+    for (let w of String(title || '').toLowerCase().match(/[a-z0-9][a-z0-9+#.]*/g) || []) {
+      w = w.replace(/\.js$/, '').replace(/\.+$/, '');     // "React.js" is "React"
+      w = TITLE_SAME[w] || w;
+      if (w.length >= 2 && !TITLE_NOISE.has(w)) out.add(w);
+    }
+    return out;
+  }
+
+  // Dice coefficient over title words: 1 for the same title, "Java Developer"
+  // against "Senior Java Engineer" 0.4.
+  function titleMatch(a, b) {
+    const x = titleWords(a);
+    const y = titleWords(b);
+    if (!x.size || !y.size) return 0;
+    let both = 0;
+    for (const w of x) if (y.has(w)) both++;
+    return (2 * both) / (x.size + y.size);
+  }
+
+  // The largest box around a button that holds no other Apply button: that
+  // opening's card.
+  function cardOf(btn, all) {
+    let node = btn;
+    while (node.parentElement && node.parentElement !== document.body
+      && !all.some((o) => o !== btn && node.parentElement.contains(o))) {
+      node = node.parentElement;
+    }
+    return node;
+  }
+
+  const CARD_HEADING = 'h1, h2, h3, h4, h5, h6, [role="heading"], [class*="title"], [class*="Title"]';
+
+  function cardTitle(card, btn) {
+    const h = Array.from(card.querySelectorAll(CARD_HEADING))
+      .find((el) => !el.contains(btn) && !btn.contains(el) && text(el) && text(el).length <= 120);
+    return h ? text(h) : '';
+  }
+
+  // One job, however many Apply buttons it has: the best one. Several
+  // openings: the one titled like this job, or none - pressing a guess
+  // applies you to a job you never chose.
+  // Returns { btn, opening?, openings? } or { listing: number of openings }.
+  function chooseReveal(cands, jobTitle) {
+    const cards = cands.map((btn) => ({ btn, title: cardTitle(cardOf(btn, cands), btn) }))
+      .filter((c) => ROLE_WORD.test(c.title));
+    const titles = new Set(cards.map((c) => c.title.toLowerCase()));
+    if (titles.size < 2) return { btn: cands[0] };
+    const ranked = cards.map((c) => ({ ...c, score: titleMatch(jobTitle, c.title) }))
+      .sort((a, b) => b.score - a.score);
+    const [best, next] = ranked;
+    const clear = !next || best.score - next.score >= TITLE_MARGIN
+      || best.title.toLowerCase() === next.title.toLowerCase();   // the same opening listed twice
+    if (best.score >= TITLE_MATCH && clear) return { btn: best.btn, opening: best.title, openings: titles.size };
+    return { listing: titles.size };
   }
 
   // Career pages often embed the real form from an ATS (Greenhouse's
@@ -126,23 +198,28 @@ window.LEA = window.LEA || {};
   // an Apply button - sometimes two in a row (Workday: "Apply", then "Apply
   // Manually"). Single-page apps render that button a few seconds after load,
   // so it is waited for rather than looked for once.
-  // Returns { form }, { moved: url } when this tab is on its way elsewhere, or {}.
-  async function revealForm(report, atsHosts) {
+  // Returns { form }, { moved: url } when this tab is on its way elsewhere,
+  // { listing: n } when it lists n openings and none is this job, or {}.
+  async function revealForm(report, atsHosts, jobTitle) {
     const tried = new Set();
     for (let step = 0; step < 3; step++) {
       const next = await waitFor(() => {
         if (applicationForm()) return { form: true };
         const frame = atsFrame(atsHosts);
         if (frame) return { frame };
-        const btn = revealButton(tried);
-        return btn ? { btn } : null;
+        const cands = revealButtons(tried);
+        return cands.length ? chooseReveal(cands, jobTitle) : null;
       }, { timeout: step ? 8000 : 15000 });
       if (!next) break;
       if (next.form) return { form: true };
+      if (next.listing) return { listing: next.listing };
       if (next.frame) {
         report('portal', 'the form is embedded from another site; opening it directly: ' + next.frame.slice(0, 100));
         location.assign(next.frame);
         return { moved: next.frame };
+      }
+      if (next.opening) {
+        report('portal', 'the page lists ' + next.openings + ' openings; this job is "' + next.opening + '"');
       }
 
       const btn = next.btn;
@@ -498,9 +575,15 @@ window.LEA = window.LEA || {};
       || null;
   }
 
-  async function confirmed(beforeUrl) {
+  // How many confirmation phrases the page shows. Only new ones count after
+  // Submit: a "Thank you for visiting" in the footer was there all along.
+  function doneCount() {
+    return ((document.body.innerText || document.body.textContent || '').match(DONE_TEXT_ALL) || []).length;
+  }
+
+  async function confirmed(beforeUrl, baseline = 0) {
     const hit = await waitFor(() => {
-      if (DONE_TEXT.test(document.body.innerText || '')) return 'message';
+      if (doneCount() > baseline) return 'message';
       if (location.href !== beforeUrl && /thank|success|confirm|complete|submitted/i.test(location.href)) return 'url';
       return null;
     }, { timeout: 25000, interval: 700 });
@@ -532,9 +615,16 @@ window.LEA = window.LEA || {};
   // be pressed.
   async function apply(job, cfg, ats, report, opts = {}) {
     await sleep(rand(1200, 2200));
-    const shown = await revealForm(report, opts.atsHosts);
+    const shown = await revealForm(report, opts.atsHosts, job.title);
     // The background follows the tab and runs this again on the next page.
     if (shown.moved) return { status: 'moved', reason: 'went on to ' + shown.moved };
+    if (shown.listing) {
+      return {
+        status: 'needs_manual',
+        reason: 'the careers page lists ' + shown.listing + ' openings and none is clearly "' + job.title + '"; pick it there',
+        keepTab: true
+      };
+    }
 
     const form = pickForm();
     if (!form) {
@@ -595,6 +685,7 @@ window.LEA = window.LEA || {};
     }
 
     const before = location.href;
+    const baseline = doneCount();
     report('portal', 'submitting');
     // Many sites answer Submit with a new page, and this script goes with the
     // old one. Telling the background first lets it read that as the form
@@ -602,7 +693,7 @@ window.LEA = window.LEA || {};
     if (opts.submitting) await opts.submitting();
     await clickEl(submit);
 
-    const how = await confirmed(before);
+    const how = await confirmed(before, baseline);
     if (!how) {
       const errs = visibleErrors();
       return {

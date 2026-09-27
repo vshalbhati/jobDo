@@ -283,6 +283,14 @@ sign-in page and is handed to you rather than filled. If Submit itself takes
 the tab to a new page, that page is checked for a confirmation instead of the
 navigation counting as a failure.
 
+**Careers pages that list many openings.** A company's careers page often has
+an Apply button on every opening. The one pressed is the card whose title
+matches the job's ("Sr Java Engineer" finds "Senior Java Engineer"); if none
+matches clearly, the tab is handed to you with the number of openings, rather
+than applying you to whichever job happens to be first. A confirmation only
+counts if it appeared after Submit, so a "Thank you for visiting" in the footer
+never passes for one.
+
 **Permissions.** The recognised ATS domains are in the manifest. Unrecognised
 career sites are not — allowing those needs the optional `https://*/*`
 permission, which Chrome only grants from a click on an extension page. The

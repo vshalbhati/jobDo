@@ -83,7 +83,8 @@ window.LEA = window.LEA || {};
     });
     const txt = document.createElement('div');
     txt.style.flex = '1';
-    txt.innerHTML = '<b>jobDo filled this in for you.</b> ';
+    // Not "filled this in": on a sign-in page or a list of openings nothing was.
+    txt.innerHTML = '<b>jobDo handed this one to you:</b> ';
     txt.appendChild(document.createTextNode(reason + (job && job.title ? '  —  ' + job.title + ' at ' + job.company : '')));
     const close = document.createElement('button');
     close.textContent = 'Dismiss';
