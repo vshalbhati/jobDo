@@ -16,7 +16,9 @@ window.LEA = window.LEA || {};
   const SKIP_FIELD = /search|newsletter|subscribe|coupon|promo|captcha|honeypot/i;
   const CONSENT = /\b(i )?(agree|consent|accept|acknowledge|certify|confirm|authorize)\b|privacy (policy|notice)|terms|gdpr|data protection|true and complete/i;
   const COVER_LETTER = /cover letter|why (do|would) you|tell us (about|why)|motivation|additional information|anything else/i;
-  const RESUME_FIELD = /resume|r[ée]sum[ée]|\bcv\b|upload/i;
+  const RESUME_FIELD = /resume|r[ée]sum[ée]|\bcv\b/i;
+  // File slots that are for something other than the résumé.
+  const OTHER_FILE = /cover[\s_-]*letter|photo|picture|headshot|avatar|transcript|certificat|portfolio|writing sample|work sample|passport|aadhaar|\bpan\b|id proof|identity|marksheet|pay ?slip|relieving|offer letter/i;
   const SUBMIT_TEXT = /^(submit( application| my application)?|apply( now)?|send( application)?|finish|complete application)$/i;
   const NOT_SUBMIT = /save|cancel|back|previous|draft|sign ?in|log ?in|create (an )?account|register|clear|reset|attach|upload|browse|choose/i;
   const REVEAL_TEXT = /^(apply|apply (now|online|here|today)|apply (for|to) (this|the) (job|position|role|vacancy|opening)|apply for job|i'?m interested|(start|begin)( my| your| the)? application|apply manually|continue( to (the )?application)?)$/i;
@@ -401,41 +403,59 @@ window.LEA = window.LEA || {};
 
   // ---------------------------------------------------------------- filling
 
-  function dataUrlToFile(dataUrl, name, mime) {
-    const comma = dataUrl.indexOf(',');
-    const meta = dataUrl.slice(0, comma);
-    const body = dataUrl.slice(comma + 1);
-    const bytes = meta.includes(';base64')
-      ? Uint8Array.from(atob(body), (c) => c.charCodeAt(0))
-      : new TextEncoder().encode(decodeURIComponent(body));
-    return new File([bytes], name || 'resume.pdf', { type: mime || 'application/pdf' });
+  function showsFile(name) {
+    const body = document.body.innerText || document.body.textContent || '';
+    const stem = name.replace(/\.[a-z0-9]+$/i, '');
+    return body.includes(name) || (stem.length >= 6 && body.toLowerCase().includes(stem.toLowerCase()));
   }
 
+  // Puts the résumé into a file input. Most sites take it from the input's
+  // change event. Drag-and-drop widgets that ignore that get a synthetic drop,
+  // but only when the page showed no reaction at all, so nothing is attached
+  // twice.
   async function attachResume(el, cfg, report) {
     if (!cfg.resume || !cfg.resume.dataUrl) {
-      report('warn', 'this form wants a file but no resume is stored');
+      report('warn', 'this form wants a resume but none is downloaded from your account');
       return false;
     }
-    const file = dataUrlToFile(cfg.resume.dataUrl, cfg.resume.fileName, cfg.resume.mime);
+    const file = D.fileFromDataUrl(cfg.resume.dataUrl, cfg.resume.fileName, cfg.resume.mime);
+    const zone = el.closest('[class*="drop"], [class*="upload"], [class*="attach"], [class*="file"]') || el.parentElement || document.body;
+    const before = text(zone);
+    const reacted = () => showsFile(file.name) || text(zone) !== before;
+
     const dt = new DataTransfer();
     dt.items.add(file);
     el.files = dt.files;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    await sleep(1500);
 
-    // Drag-and-drop widgets ignore a change event on their hidden input, so
-    // fall back to a synthetic drop only if the name never showed up.
-    if (!document.body.innerText.includes(file.name)) {
-      const zone = el.closest('[class*="drop"], [class*="dropzone"], [class*="upload"], [class*="attach"]') || el.parentElement;
-      if (zone) {
-        zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
-        await sleep(1800);
-      }
+    if (!await waitFor(reacted, { timeout: 4000, interval: 250 })) {
+      zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      await waitFor(reacted, { timeout: 4000, interval: 250 });
     }
-    const landed = document.body.innerText.includes(file.name);
-    report(landed ? 'portal' : 'warn', (landed ? 'attached ' : 'could not confirm attachment of ') + file.name);
-    return landed;
+    // A plain form that uploads on submit shows nothing, but still holds it.
+    const held = !!(el.files && el.files.length && el.files[0].name === file.name);
+    const ok = reacted() || held;
+    report(ok ? 'portal' : 'warn', (ok ? 'attached ' : 'could not attach ') + file.name);
+    return ok;
+  }
+
+  // Which file field the résumé goes in: one that says so, or else the first
+  // that is not plainly for something else. "Attach", "Choose file" and "Drop
+  // files here" are usually the résumé: it is nearly always a form's first file.
+  function resumeSlot(qs) {
+    const files = qs.filter((qn) => qn.kind === 'file' && !OTHER_FILE.test(qn.label || ''));
+    return files.find((qn) => RESUME_FIELD.test(qn.label || '')) || files[0] || null;
+  }
+
+  // Some sites put the upload box outside the <form> element. Only a field
+  // that says résumé or CV is used from out there.
+  async function attachOutside(form, cfg, report) {
+    const outside = Array.from(document.querySelectorAll('input[type="file"]'))
+      .filter((el) => !form.contains(el) && !el.disabled)
+      .map((el) => ({ el, kind: 'file', label: labelFor(el) }))
+      .filter((qn) => RESUME_FIELD.test(qn.label) && !OTHER_FILE.test(qn.label) && !valueOf(qn));
+    return outside.length ? attachResume(outside[0].el, cfg, report) : false;
   }
 
   async function fillCustom(el, value, cfg, report) {
@@ -471,14 +491,6 @@ window.LEA = window.LEA || {};
   }
 
   async function fillOne(qn, cfg, job, report) {
-    if (qn.kind === 'file') {
-      if (valueOf(qn)) return { filled: false };
-      if (RESUME_FIELD.test(qn.label) || !qn.label) {
-        return { filled: await attachResume(qn.el, cfg, report) };
-      }
-      return { filled: false };       // cover-letter/portfolio file slots are left alone
-    }
-
     if (qn.kind === 'checkbox') {
       if (CONSENT.test(qn.label)) {
         if (!qn.el.checked) {
@@ -536,8 +548,22 @@ window.LEA = window.LEA || {};
   async function fillForm(form, cfg, job, report) {
     const unknowns = [];
     let filled = 0;
-    for (const qn of questions(form)) {
-      if (!qn.label && qn.kind !== 'file') continue;
+    const qs = questions(form);
+    const slot = resumeSlot(qs);
+    for (const qn of qs) {
+      // The résumé goes in its one slot. Cover letters, photos and the like
+      // are left alone, and reported afterwards if the form requires them.
+      if (qn.kind === 'file') {
+        if (qn === slot && !valueOf(qn)) {
+          try {
+            if (await attachResume(qn.el, cfg, report)) filled++;
+          } catch (e) {
+            report('warn', 'could not attach the resume: ' + e.message);
+          }
+        }
+        continue;
+      }
+      if (!qn.label) continue;
       try {
         const r = await fillOne(qn, cfg, job, report);
         if (r.filled) { filled++; await D.humanPause(cfg); }
@@ -551,6 +577,7 @@ window.LEA = window.LEA || {};
         report('warn', 'could not fill "' + qn.label.slice(0, 60) + '": ' + e.message);
       }
     }
+    if (!slot && await attachOutside(form, cfg, report)) filled++;
     return { filled, unknowns };
   }
 

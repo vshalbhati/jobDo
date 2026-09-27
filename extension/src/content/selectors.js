@@ -125,15 +125,23 @@ window.LEA.SEL = {
     '#follow-company-checkbox',
     'input[type="checkbox"][id*="follow" i]'
   ],
+  // One card per résumé already saved on LinkedIn. Not the upload box: with
+  // nothing saved there are no cards, only the box.
   resumeCard: [
     '.jobs-document-upload-redesign-card__container',
     '.jobs-resume-picker__resume',
-    '.jobs-document-upload__container'
+    '[class*="document-upload-redesign-card__container"]'
   ],
-  resumeFileInput: [
-    'input[type="file"][name="file"]',
-    'input[type="file"][id*="upload-resume" i]',
-    'input[type="file"]'
+  resumeCardName: [
+    '.jobs-document-upload-redesign-card__file-name',
+    '[class*="card__file-name"]',
+    'h3'
+  ],
+  // Which file input is the résumé's is decided in easy-apply.js by its id
+  // and label: the cover letter's input is name="file" too.
+  resumeUploadError: [
+    '.jobs-document-upload__error',
+    '[class*="document-upload"] .artdeco-inline-feedback--error'
   ],
   typeaheadOption: [
     '.basic-typeahead__selectable',

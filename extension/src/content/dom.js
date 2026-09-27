@@ -194,8 +194,37 @@ window.LEA = window.LEA || {};
     return el.getAttribute('placeholder') || el.name || '';
   }
 
+  // ----------------------------------------------------------------- files
+
+  // The résumé as the extension stores it - a data: URL - as a File a form
+  // input can take. Decoded by hand, so it depends on nothing the page allows.
+  function fileFromDataUrl(dataUrl, name, mime) {
+    const comma = dataUrl.indexOf(',');
+    const meta = dataUrl.slice(0, comma);
+    const body = dataUrl.slice(comma + 1);
+    const bytes = meta.includes(';base64')
+      ? Uint8Array.from(atob(body), (c) => c.charCodeAt(0))
+      : new TextEncoder().encode(decodeURIComponent(body));
+    return new File([bytes], name || 'resume.pdf', { type: mime || 'application/pdf' });
+  }
+
+  // Whether a page's rendering of a file name is this file. Sites drop the
+  // extension, change the case, swap spaces for underscores, or cut a long
+  // name short.
+  function sameFileName(shown, name) {
+    const norm = (s) => String(s || '').toLowerCase()
+      .replace(/(…|\.\.\.)\s*$/, '')
+      .replace(/\.(pdf|docx?|txt|rtf|odt)$/i, '')
+      .replace(/[^a-z0-9]+/g, '');
+    const a = norm(shown);
+    const b = norm(name);
+    if (!a || !b) return false;
+    return a === b || (a.length >= 8 && b.startsWith(a)) || (b.length >= 8 && a.startsWith(b));
+  }
+
   LEA.dom = {
     sleep, rand, humanPause, q, qa, visible, text, blockText, waitFor, waitGone,
-    clickEl, setValue, setSelect, findButton, scrollThrough, labelOf, isEditable
+    clickEl, setValue, setSelect, findButton, scrollThrough, labelOf, isEditable,
+    fileFromDataUrl, sameFileName
   };
 })(window.LEA);

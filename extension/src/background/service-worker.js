@@ -663,10 +663,10 @@ async function applyOpened(job, opened, cfg, tabId, site) {
   return { ...result, source: 'easy' };
 }
 
-// The resume's base64 is only worth shipping across when we intend to upload it.
-const slimCfg = (cfg) => (cfg.resume.strategy === 'upload'
-  ? cfg
-  : { ...cfg, resume: { ...cfg.resume, dataUrl: '', text: '' } });
+// The page never needs the resume's extracted text. It does need the file
+// even when set to use LinkedIn's saved one: with nothing saved there, the
+// step cannot be passed without uploading it.
+const slimCfg = (cfg) => ({ ...cfg, resume: { ...cfg.resume, text: '' } });
 
 // ------------------------------------------------------- company portal (2)
 

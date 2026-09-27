@@ -29,9 +29,13 @@ extension).
 
 ## First run
 
-1. **Settings → 1. Resume** — upload a PDF, DOCX or TXT. It is parsed locally
-   and never leaves your machine unless you choose the "upload on every
-   application" strategy, which sends it to LinkedIn exactly as you would.
+1. **Settings → 1. Resume** — upload a PDF, DOCX or TXT on the website. On
+   LinkedIn, "use a resume already saved on LinkedIn" keeps whichever one
+   LinkedIn has selected and uploads yours only when LinkedIn has none saved;
+   "use this file" selects it if LinkedIn already has it and uploads it
+   otherwise, so it never piles up duplicates. Company-site forms get it in
+   their résumé field (or their first file field that is not for a cover
+   letter, photo or the like), and the log says whether each one took it.
 2. **2. Profile** — check what the parser found. These values get typed into
    real application forms, so fix the wrong ones. Pay attention to the skill
    list and the years on each skill; they answer the "how many years with X"

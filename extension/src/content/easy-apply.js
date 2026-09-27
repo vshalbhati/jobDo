@@ -165,43 +165,128 @@ window.LEA = window.LEA || {};
     return { unknowns, filled };
   }
 
+  // ----------------------------------------------------------- the résumé step
+  //
+  // "Use a résumé saved on LinkedIn": keep the one LinkedIn has selected, or
+  // pick one. "Upload": send the one on your jobDo account - unless LinkedIn
+  // already has that same file saved, in which case it is selected rather than
+  // uploaded again. Either way, when LinkedIn has nothing saved, the account's
+  // résumé is uploaded, since the step cannot be passed without one.
+
+  const FILE_NAME = /[^\s/\\"'<>]+\.(pdf|docx?|txt|rtf|odt)\b/i;
+  const COVER_LETTER = /cover[\s_-]*letter/i;
+  const RESUME_WORD = /resume|r[ée]sum[ée]|\bcv\b/i;
+
+  function labelText(el) {
+    return el.id ? text(document.querySelector('label[for="' + CSS.escape(el.id) + '"]')) : '';
+  }
+
+  // The résumé's file input, never the cover letter's: on LinkedIn both are
+  // name="file", so the id, the label and then the surrounding text decide.
+  // Null unless something says résumé, so a portfolio upload on another step
+  // is never mistaken for it.
+  function resumeInput(modal) {
+    const found = [];
+    for (const el of modal.querySelectorAll('input[type="file"]')) {
+      const own = [el.id, el.name, el.getAttribute('aria-label'), labelText(el)].join(' ');
+      const near = text(el.parentElement && el.parentElement.parentElement);
+      if (COVER_LETTER.test(own)) continue;
+      if (RESUME_WORD.test(own)) found.push({ el, rank: 0 });
+      else if (!COVER_LETTER.test(near) && RESUME_WORD.test(near)) found.push({ el, rank: 1 });
+    }
+    found.sort((a, b) => a.rank - b.rank);
+    return found.length ? found[0].el : null;
+  }
+
+  // Résumés already saved on LinkedIn: { el, radio, name }.
+  function resumeCards(modal) {
+    return qa(SEL.resumeCard, modal)
+      .filter((el) => !COVER_LETTER.test(el.className + ' ' + (el.id || '')) && !el.closest('[class*="cover-letter"]'))
+      .map((el) => ({
+        el,
+        radio: el.querySelector('input[type="radio"]'),
+        name: text(q(SEL.resumeCardName, el)) || (text(el).match(FILE_NAME) || [''])[0]
+      }));
+  }
+
+  function isSelected(card) {
+    if (card.radio) return card.radio.checked;
+    return /selected/.test(card.el.className) || card.el.getAttribute('aria-checked') === 'true';
+  }
+
+  async function selectCard(card) {
+    if (isSelected(card)) return true;
+    const r = card.radio;
+    const label = r && r.id ? document.querySelector('label[for="' + CSS.escape(r.id) + '"]') : null;
+    await clickEl(label && visible(label) ? label : card.el);
+    if (r && !r.checked) {
+      r.checked = true;
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    return isSelected(card);
+  }
+
   async function handleResume(cfg, report) {
     const modal = modalRoot();
     if (!modal) return;
-    const card = q(SEL.resumeCard, modal);
-    if (!card) return;
+    const input = resumeInput(modal);
+    const cards = resumeCards(modal);
+    if (!input && !cards.length) return;          // not the résumé step
 
-    const radios = Array.from(modal.querySelectorAll('input[type="radio"]'))
-      .filter((r) => r.closest(SEL.resumeCard.join(',')));
-    const wantUpload = cfg.resume && cfg.resume.strategy === 'upload' && cfg.resume.dataUrl;
+    const stored = cfg.resume || {};
+    const upload = stored.strategy === 'upload';
+    const mine = stored.fileName ? cards.find((c) => D.sameFileName(c.name, stored.fileName)) : null;
 
-    if (!wantUpload && radios.length) {
-      if (!radios.some((r) => r.checked)) {
-        await clickEl(radios[0]);
-        report('resume', 'selected saved resume');
+    if (cards.length && (!upload || mine)) {
+      if (upload && mine) {
+        await selectCard(mine);
+        report('resume', 'selected ' + mine.name + ', already saved on LinkedIn');
+      } else if (!cards.some(isSelected)) {
+        const pick = mine || cards[0];
+        await selectCard(pick);
+        report('resume', 'selected saved resume ' + (pick.name || ''));
       }
       return;
     }
 
-    if (wantUpload) {
-      const input = q(SEL.resumeFileInput, modal);
-      if (!input) return;
-      try {
-        const blob = await (await fetch(cfg.resume.dataUrl)).blob();
-        const file = new File([blob], cfg.resume.fileName || 'resume.pdf', {
-          type: cfg.resume.mime || 'application/pdf'
-        });
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        input.files = dt.files;
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        report('resume', 'uploaded ' + file.name);
-        await sleep(2500);
-      } catch (e) {
-        report('warn', 'resume upload failed: ' + e.message);
-      }
-    } else if (radios.length === 0) {
-      report('warn', 'no saved resume found on this step');
+    if (!stored.dataUrl) {
+      report('warn', cards.length
+        ? 'set to upload, but no resume file is downloaded from your account; kept LinkedIn\'s'
+        : 'this step needs a resume and none is downloaded from your account: upload one on the jobDo website');
+      return;
+    }
+    if (!input) {
+      report('warn', 'the resume step has no upload button');
+      return;
+    }
+
+    let file;
+    try {
+      file = D.fileFromDataUrl(stored.dataUrl, stored.fileName, stored.mime);
+    } catch (e) {
+      report('warn', 'the stored resume could not be read: ' + e.message);
+      return;
+    }
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    report('resume', 'uploading ' + file.name + (cards.length ? '' : ' (nothing saved on LinkedIn yet)'));
+
+    // LinkedIn uploads it, then shows it as a new, selected card.
+    const done = await waitFor(() => {
+      const card = resumeCards(modal).find((c) => D.sameFileName(c.name, file.name));
+      if (card) return { card };
+      const err = text(q(SEL.resumeUploadError, modal));
+      return err ? { err } : null;
+    }, { timeout: 20000, interval: 400 });
+
+    if (done && done.card) {
+      await selectCard(done.card);
+      report('resume', 'uploaded ' + file.name + ' and it is selected');
+    } else {
+      report('warn', 'resume upload not confirmed by LinkedIn' + (done && done.err ? ': ' + done.err : ' within 20 seconds'));
     }
   }
 
@@ -391,5 +476,5 @@ window.LEA = window.LEA || {};
 
   // askUserConfirm is shared: every board's apply flow needs the same
   // "ready to submit" prompt when review-before-submit is on.
-  LEA.easyApply = { applyToJob, discard, modalRoot, askUserConfirm };
+  LEA.easyApply = { applyToJob, discard, modalRoot, askUserConfirm, handleResume };
 })(window.LEA);
