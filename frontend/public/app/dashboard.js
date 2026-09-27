@@ -4,6 +4,9 @@ import {
   loadResume, downloadResume, saveFeedback, exportRatings
 } from './source.js';
 import { columnChart, stackedBar, barChart, heatmap } from './charts.js';
+import { icon, hydrateIcons } from './icons.js';
+
+hydrateIcons();
 
 const $ = (id) => document.getElementById(id);
 
@@ -31,10 +34,11 @@ const state = {
   rating: '',
   sort: { key: 'at', dir: -1 },
   page: 0,
-  pageSize: 50
+  pageSize: 25
 };
 
 const DAY = 86400000;
+const thisYear = new Date().getFullYear();
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const dayKey = (d) => startOfDay(d).getTime();
 
@@ -242,10 +246,18 @@ function renderTable() {
   for (const r of slice) {
     const tr = document.createElement('tr');
 
+    // The date, and the time underneath; the year only when it is not this one.
     const when = document.createElement('td');
-    when.textContent = r.at ? new Date(r.at).toLocaleString([], {
-      year: '2-digit', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    }) : '';
+    when.className = 'when';
+    if (r.at) {
+      const d = new Date(r.at);
+      when.textContent = d.toLocaleDateString([], {
+        month: 'short', day: 'numeric', year: d.getFullYear() === thisYear ? undefined : 'numeric'
+      });
+      const time = document.createElement('small');
+      time.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      when.appendChild(time);
+    }
 
     const job = document.createElement('td');
     const a = document.createElement('a');
@@ -254,6 +266,7 @@ function renderTable() {
     job.appendChild(a);
 
     const company = document.createElement('td');
+    company.className = 'company';
     company.textContent = r.company;
 
     const route = document.createElement('td');
@@ -265,9 +278,19 @@ function renderTable() {
       + (r.source === 'portal' ? ' \u00b7 ' + (r.ats || 'company site') : '')));
     route.appendChild(rspan);
 
+    // The number is what is read; the meter under it only helps a column scan.
     const score = document.createElement('td');
     score.className = 'num';
-    score.textContent = r.score ?? '';
+    if (typeof r.score === 'number') {
+      const box = document.createElement('span');
+      box.className = 'score';
+      const n = document.createElement('b');
+      n.textContent = r.score;
+      const meter = document.createElement('i');
+      meter.style.setProperty('--w', r.score + '%');
+      box.append(n, meter);
+      score.appendChild(box);
+    }
 
     const rating = rateCell(r);
 
@@ -297,10 +320,7 @@ function renderTable() {
 
 // ------------------------------------------------------------ match ratings
 
-// Feather icons (MIT), drawn in the current text colour.
-const THUMB_UP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
-const THUMB_DOWN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
-const RATINGS = [['good', 'Good match', THUMB_UP], ['bad', 'Bad match', THUMB_DOWN]];
+const RATINGS = [['good', 'Good match', icon('thumbsUp')], ['bad', 'Bad match', icon('thumbsDown')]];
 
 // Pressing the rating a job already has takes it back.
 function rateCell(r) {
@@ -373,7 +393,8 @@ async function renderLive() {
   $('liveText').textContent = bits.join('  —  ');
 
   if (MODE === 'web' && summary && summary.email) {
-    $('who').textContent = summary.email;
+    $('who').innerHTML = icon('user');
+    $('who').append(summary.email);
     $('who').classList.remove('hidden');
     $('signout').classList.remove('hidden');
   }

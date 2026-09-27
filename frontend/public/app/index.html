@@ -4,14 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>jobDo — Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f9bf0'/%3E%3Cstop offset='1' stop-color='%232554c7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M9.5 16.5l4.2 4.2 8.8-9.4' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="dashboard.css">
 </head>
 <body class="viz-root">
 
 <header class="topbar">
   <div class="brand">
-    <span class="logo"></span>
-    <h1>jobDo</h1>
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f9bf0"/><stop offset="1" stop-color="#2554c7"/></linearGradient></defs>
+      <rect width="32" height="32" rx="9" fill="url(#logoGrad)"/>
+      <path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1 class="brand-name">job<span>Do</span></h1>
   </div>
   <div class="live" id="live">
     <span class="pill" id="livePill">idle</span>
@@ -19,14 +24,22 @@
   </div>
   <div class="topbar-actions">
     <span id="who" class="who hidden"></span>
-    <button id="theme" class="icon-btn" type="button" title="Switch light / dark">◐</button>
-    <button id="openOptions" class="ghost" type="button">Settings</button>
-    <button id="signout" class="ghost hidden" type="button">Sign out</button>
-    <button id="exportCsv" class="ghost" type="button">Export CSV</button>
+    <button id="theme" class="icon-btn" type="button" title="Switch light / dark" aria-label="Switch light / dark" data-icon="contrast"></button>
+    <button id="exportCsv" class="ghost" type="button" data-icon="download"><span class="label">Export CSV</span></button>
+    <button id="openOptions" class="ghost" type="button" data-icon="settings"><span class="label">Settings</span></button>
+    <button id="signout" class="ghost hidden" type="button" data-icon="logOut"><span class="label">Sign out</span></button>
   </div>
 </header>
 
 <main>
+  <div class="page-head">
+    <div>
+      <h2>Your job search</h2>
+      <p>Everything the extension applied to, handed over or skipped, and why.</p>
+    </div>
+    <span class="filter-note" id="filterNote"></span>
+  </div>
+
   <!-- filters sit in one row above the charts and drive everything below -->
   <div class="filters" role="group" aria-label="Filters">
     <div class="seg" id="rangeSeg" role="tablist" aria-label="Date range">
@@ -46,31 +59,47 @@
       <button role="tab" data-source="easy">Easy Apply</button>
       <button role="tab" data-source="portal">Company portal</button>
     </div>
-    <span class="filter-note" id="filterNote"></span>
   </div>
 
   <section class="headline">
     <div class="hero">
-      <div class="hero-label">Applications submitted</div>
-      <div class="hero-value" id="heroValue">0</div>
-      <div class="hero-sub" id="heroSub"></div>
+      <div class="hero-top"><span class="hero-icon" data-icon="send"></span><span class="hero-label">Applications submitted</span></div>
+      <div>
+        <div class="hero-value" id="heroValue">0</div>
+        <div class="hero-sub" id="heroSub"></div>
+      </div>
     </div>
     <div class="kpis">
-      <div class="tile"><div class="tile-label">Today</div><div class="tile-value" id="kToday">0</div><div class="tile-foot" id="kTodayFoot"></div></div>
-      <div class="tile"><div class="tile-label">Last 7 days</div><div class="tile-value" id="kWeek">0</div><div class="tile-foot" id="kWeekFoot"></div></div>
-      <div class="tile"><div class="tile-label">Submit rate</div><div class="tile-value" id="kRate">0%</div><div class="tile-foot" id="kRateFoot"></div></div>
-      <div class="tile"><div class="tile-label">Companies reached</div><div class="tile-value" id="kCompanies">0</div><div class="tile-foot" id="kCompaniesFoot"></div></div>
+      <div class="tile">
+        <div class="tile-top"><span class="tile-label">Today</span><span class="tile-icon" data-icon="calendarCheck"></span></div>
+        <div class="tile-value" id="kToday">0</div><div class="tile-foot" id="kTodayFoot"></div>
+      </div>
+      <div class="tile">
+        <div class="tile-top"><span class="tile-label">Last 7 days</span><span class="tile-icon" data-icon="trendingUp"></span></div>
+        <div class="tile-value" id="kWeek">0</div><div class="tile-foot" id="kWeekFoot"></div>
+      </div>
+      <div class="tile">
+        <div class="tile-top"><span class="tile-label">Submit rate</span><span class="tile-icon" data-icon="target"></span></div>
+        <div class="tile-value" id="kRate">0%</div><div class="tile-foot" id="kRateFoot"></div>
+      </div>
+      <div class="tile">
+        <div class="tile-top"><span class="tile-label">Companies reached</span><span class="tile-icon" data-icon="building"></span></div>
+        <div class="tile-value" id="kCompanies">0</div><div class="tile-foot" id="kCompaniesFoot"></div>
+      </div>
     </div>
   </section>
 
   <!-- what the ranker compares every job against -->
   <section class="card resume-card hidden" id="resumeCard" aria-labelledby="resumeTitle">
     <div class="resume-head">
-      <div>
-        <h2 id="resumeTitle">Your resume</h2>
-        <p class="card-sub" id="resumeSub"></p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="fileText"></span>
+        <div>
+          <h2 id="resumeTitle">Your resume</h2>
+          <p class="card-sub" id="resumeSub"></p>
+        </div>
       </div>
-      <button id="resumeDownload" class="ghost hidden" type="button">Download</button>
+      <button id="resumeDownload" class="ghost hidden" type="button" data-icon="download"><span class="label">Download</span></button>
     </div>
     <p class="resume-empty hidden" id="resumeEmpty"></p>
     <div class="resume-body hidden" id="resumeBody">
@@ -90,60 +119,75 @@
 
   <section class="grid">
     <article class="card wide">
-      <h2>Applications submitted per day</h2>
-      <p class="card-sub" id="trendSub"></p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="barChart"></span>
+        <div><h2>Applications submitted per day</h2><p class="card-sub" id="trendSub"></p></div>
+      </div>
       <div class="viz" id="chartTrend"></div>
     </article>
 
     <article class="card">
-      <h2>What happened to each attempt</h2>
-      <p class="card-sub">Every job the run opened, by outcome.</p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="pieChart"></span>
+        <div><h2>What happened to each attempt</h2><p class="card-sub">Every job the run opened, by outcome.</p></div>
+      </div>
       <div class="viz" id="chartOutcome"></div>
     </article>
 
     <article class="card">
-      <h2>Route taken</h2>
-      <p class="card-sub">LinkedIn's own form versus the employer's site.</p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="route"></span>
+        <div><h2>Route taken</h2><p class="card-sub">LinkedIn's own form versus the employer's site.</p></div>
+      </div>
       <div class="viz" id="chartRoute"></div>
     </article>
 
     <article class="card">
-      <h2>Companies applied to most</h2>
-      <p class="card-sub">Top 10 by number of attempts.</p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="building"></span>
+        <div><h2>Companies applied to most</h2><p class="card-sub">Top 10 by number of attempts.</p></div>
+      </div>
       <div class="viz" id="chartCompanies"></div>
     </article>
 
     <article class="card">
-      <h2>Match score of the jobs it picked</h2>
-      <p class="card-sub">How close to your resume the ranker scored each job it applied to.</p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="gauge"></span>
+        <div><h2>Match score of the jobs it picked</h2><p class="card-sub">How close to your resume the ranker scored each job it applied to.</p></div>
+      </div>
       <div class="viz" id="chartScores"></div>
       <div class="threshold hidden" id="thresholdBox">
-        <label for="thresholdRange">Apply only to jobs scoring at least</label>
+        <label for="thresholdRange" data-icon="sliders">Apply only to jobs scoring at least</label>
         <div class="threshold-row">
           <input id="thresholdRange" type="range" min="0" max="100" step="1">
           <b id="thresholdVal"></b>
-          <button id="thresholdSave" class="ghost" type="button" disabled>Save</button>
+          <button id="thresholdSave" class="ghost" type="button" disabled data-icon="check"><span class="label">Save</span></button>
         </div>
         <p class="threshold-note" id="thresholdNote">Stored on your account. The extension picks it up on its next run.</p>
       </div>
     </article>
 
     <article class="card wide">
-      <h2>When it has been applying</h2>
-      <p class="card-sub">Each square is a day over the last 18 weeks.</p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="calendar"></span>
+        <div><h2>When it has been applying</h2><p class="card-sub">Each square is a day over the last 18 weeks.</p></div>
+      </div>
       <div class="viz" id="chartCalendar"></div>
     </article>
   </section>
 
   <section class="card table-card">
     <div class="table-head">
-      <div>
-        <h2>Every application</h2>
-        <p class="card-sub">Mark whether each job was a good match for you, whatever the run did with it. Your ratings are what the ranker gets checked against.</p>
+      <div class="card-head">
+        <span class="card-icon" data-icon="briefcase"></span>
+        <div>
+          <h2>Every application</h2>
+          <p class="card-sub">Mark whether each job was a good match for you, whatever the run did with it. Your ratings are what the ranker gets checked against.</p>
+        </div>
       </div>
       <div class="table-tools">
-        <input id="search" type="search" placeholder="Search job or company">
-        <select id="statusFilter">
+        <label class="search-box"><span data-icon="search"></span><input id="search" type="search" placeholder="Search job or company" aria-label="Search job or company"></label>
+        <select id="statusFilter" aria-label="Filter by outcome">
           <option value="">All outcomes</option>
           <option value="applied">Submitted</option>
           <option value="needs_manual">Handed to you</option>
@@ -157,7 +201,7 @@
           <option value="good">Good match</option>
           <option value="bad">Bad match</option>
         </select>
-        <button id="exportRatings" class="ghost" type="button" title="Every rated job with its posting, for ranker/evaluate.py">Export ratings</button>
+        <button id="exportRatings" class="ghost" type="button" title="Every rated job with its posting, for ranker/evaluate.py" data-icon="download"><span class="label">Export ratings</span></button>
       </div>
     </div>
     <div class="table-scroll">
@@ -180,9 +224,9 @@
     <div class="table-foot">
       <span><span id="tableCount"></span> <span id="ratingsNote" class="ratings-note"></span></span>
       <div class="pager">
-        <button id="prevPage" class="ghost" type="button">Previous</button>
+        <button id="prevPage" class="ghost" type="button" data-icon="chevronLeft"><span class="label">Previous</span></button>
         <span id="pageLabel"></span>
-        <button id="nextPage" class="ghost" type="button">Next</button>
+        <button id="nextPage" class="ghost" type="button"><span class="label">Next</span><span data-icon="chevronRight"></span></button>
       </div>
     </div>
   </section>

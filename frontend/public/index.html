@@ -4,35 +4,84 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in — jobDo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f9bf0'/%3E%3Cstop offset='1' stop-color='%232554c7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M9.5 16.5l4.2 4.2 8.8-9.4' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="login.css">
 </head>
 <body>
-<main class="shell">
-  <div class="card">
-    <div class="brand"><span class="logo"></span><span>jobDo</span></div>
-    <h1 id="heading">Sign in</h1>
-    <p class="sub" id="sub">Your application history and resumes, wherever you are.</p>
+<main class="split">
+  <!-- Icons are Lucide (ISC licence), inlined. -->
+  <section class="pitch" aria-label="About jobDo">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="9" fill="rgba(255,255,255,.18)" stroke="rgba(255,255,255,.35)"/>
+        <path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>jobDo</span>
+    </div>
 
-    <form id="form" novalidate>
-      <label for="email">Email</label>
-      <input id="email" name="email" type="email" autocomplete="username" required>
+    <div class="pitch-body">
+      <h2>Apply to the jobs that fit you, not to every job going.</h2>
+      <ul class="points">
+        <li>
+          <span class="pi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg></span>
+          <div><b>Ranks every posting against your resume</b><span>Skills, years, seniority and dealbreakers, scored from 0 to 100.</span></div>
+        </li>
+        <li>
+          <span class="pi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></span>
+          <div><b>Applies at a human pace</b><span>LinkedIn, Naukri, Indeed and company career sites, within the daily caps you set.</span></div>
+        </li>
+        <li>
+          <span class="pi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg></span>
+          <div><b>Every application, tracked</b><span>What it applied to, what it skipped, and why.</span></div>
+        </li>
+      </ul>
+    </div>
+  </section>
 
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-      <p class="hint" id="pwHint">At least 10 characters.</p>
-      <p class="forgot-row"><button id="forgot" type="button" class="link">Forgot your password?</button></p>
+  <section class="auth">
+    <div class="auth-inner">
+      <div class="brand mobile-brand">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+          <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f9bf0"/><stop offset="1" stop-color="#2554c7"/></linearGradient></defs>
+          <rect width="32" height="32" rx="9" fill="url(#logoGrad)"/>
+          <path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>jobDo</span>
+      </div>
 
-      <p id="error" class="error" role="alert" hidden></p>
-      <p class="resend-row"><button id="resend" type="button" class="link" hidden>Resend the confirmation email</button></p>
-      <button id="submit" type="submit" class="primary">Sign in</button>
-    </form>
+      <h1 id="heading">Sign in</h1>
+      <p class="sub" id="sub">Your application history and resumes, wherever you are.</p>
 
-    <p class="swap">
-      <span id="swapText">No account yet?</span>
-      <button id="swap" type="button" class="link">Create one</button>
-    </p>
-  </div>
-  <p class="foot">Runs on your own server. Nothing is shared with anyone else.</p>
+      <form id="form" novalidate>
+        <label for="email">Email</label>
+        <div class="field">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+          <input id="email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required>
+        </div>
+
+        <label for="password">Password</label>
+        <div class="field">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <p class="hint" id="pwHint">At least 10 characters.</p>
+        <p class="forgot-row"><button id="forgot" type="button" class="link">Forgot your password?</button></p>
+
+        <p id="error" class="error" role="alert" hidden></p>
+        <p class="resend-row"><button id="resend" type="button" class="link" hidden>Resend the confirmation email</button></p>
+        <button id="submit" type="submit" class="primary">Sign in</button>
+      </form>
+
+      <p class="swap">
+        <span id="swapText">No account yet?</span>
+        <button id="swap" type="button" class="link">Create one</button>
+      </p>
+      <p class="foot">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+        Runs on your own server. Nothing is shared with anyone else.
+      </p>
+    </div>
+  </section>
 </main>
 <script src="config.js"></script>
 <script src="login.js"></script>

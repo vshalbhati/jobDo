@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>jobDo — Settings</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f9bf0'/%3E%3Cstop offset='1' stop-color='%232554c7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M9.5 16.5l4.2 4.2 8.8-9.4' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../app/dashboard.css">
 <link rel="stylesheet" href="settings.css">
 </head>
@@ -11,28 +12,38 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="logo"></span>
-    <h1>jobDo</h1>
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f9bf0"/><stop offset="1" stop-color="#2554c7"/></linearGradient></defs>
+      <rect width="32" height="32" rx="9" fill="url(#logoGrad)"/>
+      <path d="M9.5 16.5l4.2 4.2 8.8-9.4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1 class="brand-name">job<span>Do</span></h1>
   </div>
-  <nav class="settings-nav" aria-label="Sections">
-    <a href="#resume">Resume</a>
-    <a href="#profile">Profile</a>
-    <a href="#search">Search</a>
-    <a href="#matching">Matching</a>
-    <a href="#safety">Daily run &amp; safety</a>
-    <a href="#portal">Company sites</a>
-    <a href="#answers">Answers</a>
-  </nav>
+  <div class="topbar-title"><span data-icon="settings"></span>Settings</div>
   <div class="topbar-actions">
     <span id="who" class="who"></span>
-    <button id="theme" class="icon-btn" type="button" title="Switch light / dark">◐</button>
-    <a class="ghost" href="../app/">Dashboard</a>
-    <button id="signout" class="ghost" type="button">Sign out</button>
+    <button id="theme" class="icon-btn" type="button" title="Switch light / dark" aria-label="Switch light / dark" data-icon="contrast"></button>
+    <a class="ghost" href="../app/" data-icon="dashboard"><span class="label">Dashboard</span></a>
+    <button id="signout" class="ghost" type="button" data-icon="logOut"><span class="label">Sign out</span></button>
   </div>
 </header>
 
+<div class="settings-layout">
+<aside class="settings-side">
+  <nav class="settings-nav" aria-label="Sections">
+    <a href="#resume" data-icon="fileText">Resume</a>
+    <a href="#profile" data-icon="user">Profile</a>
+    <a href="#search" data-icon="search">Search</a>
+    <a href="#matching" data-icon="sliders">Matching</a>
+    <a href="#safety" data-icon="shield">Daily run &amp; safety</a>
+    <a href="#portal" data-icon="building">Company sites</a>
+    <a href="#answers" data-icon="message">Answers</a>
+  </nav>
+  <p class="side-note" data-icon="zap">Saved to your account. The extension downloads it before every run.</p>
+</aside>
+
 <main class="settings">
-  <p class="notice">
+  <p class="notice" data-icon="alert">
     Everything here is saved to your jobDo account. The extension downloads it before each run,
     and checks for changes every 30 minutes. Automated applying is against LinkedIn's User Agreement
     and accounts do get restricted for it: keep the daily cap low and the delays long.
@@ -42,12 +53,17 @@
 
   <div id="form" class="hidden">
   <section id="resume" class="card">
-    <h2>1. Resume</h2>
-    <p class="hint">PDF, DOCX or TXT, up to 3 MB. It is read in this browser, then stored on your account for the extension.</p>
+    <div class="section-head">
+      <span class="card-icon" data-icon="fileText"></span>
+      <div>
+      <h2>1. Resume</h2>
+      <p class="hint">PDF, DOCX or TXT, up to 3 MB. It is read in this browser, then stored on your account for the extension.</p>
+      </div>
+    </div>
     <div id="resumeCurrent" class="status-line"></div>
     <label class="file-pick">
       <input type="file" id="resumeFile" accept=".pdf,.docx,.txt">
-      <span class="ghost" id="resumePickLabel">Upload a resume</span>
+      <span class="ghost"><span data-icon="upload"></span><span id="resumePickLabel">Upload a resume</span></span>
     </label>
     <div id="resumeStatus" class="status-line"></div>
     <div class="row">
@@ -58,8 +74,13 @@
   </section>
 
   <section id="profile" class="card">
-    <h2>2. Profile</h2>
-    <p class="hint">Filled in from your resume. Correct anything it got wrong: these values are typed into application forms, and the ranker compares every job against them.</p>
+    <div class="section-head">
+      <span class="card-icon" data-icon="user"></span>
+      <div>
+      <h2>2. Profile</h2>
+      <p class="hint">Filled in from your resume. Correct anything it got wrong: these values are typed into application forms, and the ranker compares every job against them.</p>
+      </div>
+    </div>
     <p class="status-line warn hidden" id="profileLocked">Upload a resume first; the profile is saved with it.</p>
     <div class="grid">
       <label>First name<input id="p-firstName"></label>
@@ -92,12 +113,18 @@
     <div class="row add">
       <input id="newSkill" placeholder="skill">
       <input id="newSkillYears" type="number" min="0" max="50" value="3" class="narrow">
-      <button id="addSkill" class="ghost" type="button">Add</button>
+      <button id="addSkill" class="ghost" type="button" data-icon="plus">Add</button>
     </div>
   </section>
 
   <section id="search" class="card">
-    <h2>3. Search</h2>
+    <div class="section-head">
+      <span class="card-icon" data-icon="search"></span>
+      <div>
+      <h2>3. Search</h2>
+      <p class="hint">Which job boards it works through, and what it searches them for.</p>
+      </div>
+    </div>
     <h3>Job boards</h3>
     <p class="hint">Each board is worked through in turn, with its own per-run budget. The keywords and filters below apply to all of them.</p>
     <div id="boards"></div>
@@ -141,7 +168,13 @@
   </section>
 
   <section id="matching" class="card">
-    <h2>4. Matching &amp; ranking</h2>
+    <div class="section-head">
+      <span class="card-icon" data-icon="sliders"></span>
+      <div>
+      <h2>4. Matching &amp; ranking</h2>
+      <p class="hint">How every job is scored against your resume, and which ones are skipped outright.</p>
+      </div>
+    </div>
     <label class="inline">Minimum ranking score <input id="m-minScore" type="range" min="0" max="100"> <b id="minScoreVal"></b></label>
     <p class="hint">
       Every run reads the full description of more jobs than it will apply to, scores each from 0 to 100
@@ -162,7 +195,13 @@
   </section>
 
   <section id="safety" class="card">
-    <h2>5. Daily run, safety and pacing</h2>
+    <div class="section-head">
+      <span class="card-icon" data-icon="shield"></span>
+      <div>
+      <h2>5. Daily run, safety and pacing</h2>
+      <p class="hint">When it runs, how many jobs it applies to, and how slowly it goes about it.</p>
+      </div>
+    </div>
     <div class="row">
       <label><input type="checkbox" id="sc-enabled"> Run automatically every day at <input id="sc-time" type="time" class="time"></label>
     </div>
@@ -190,12 +229,17 @@
   </section>
 
   <section id="portal" class="card">
-    <h2>6. Company sites</h2>
-    <p class="hint">
+    <div class="section-head">
+      <span class="card-icon" data-icon="building"></span>
+      <div>
+      <h2>6. Company sites</h2>
+      <p class="hint">
       Jobs whose Apply button sends you to the employer's own site. Turning this on also drops the
       Easy Apply filter from the search, so both kinds of job come back. These applications are slower
       and less predictable, which is why they get their own, smaller budget.
     </p>
+      </div>
+    </div>
     <div class="row">
       <label><input type="checkbox" id="pt-enabled"> Apply on company sites too</label>
       <label><input type="checkbox" id="pt-closeTab"> Close the site's tab after a confirmed submit</label>
@@ -220,8 +264,13 @@
   </section>
 
   <section id="answers" class="card">
-    <h2>7. Application answers</h2>
-    <p class="hint">Each row is a regular expression matched against the question label, top to bottom. The first match wins. Leave an answer blank to fall back to your profile.</p>
+    <div class="section-head">
+      <span class="card-icon" data-icon="message"></span>
+      <div>
+      <h2>7. Application answers</h2>
+      <p class="hint">Each row is a regular expression matched against the question label, top to bottom. The first match wins. Leave an answer blank to fall back to your profile.</p>
+      </div>
+    </div>
     <div id="unknownBox" class="unknown hidden">
       <h3>Questions a run could not answer</h3>
       <ul id="unknownList"></ul>
@@ -235,16 +284,17 @@
     <div class="row add">
       <input id="newPattern" placeholder="pattern, e.g. willing to work weekends" class="wide">
       <input id="newAnswer" placeholder="answer">
-      <button id="addRule" class="ghost" type="button">Add rule</button>
+      <button id="addRule" class="ghost" type="button" data-icon="plus">Add rule</button>
     </div>
-    <button id="resetRules" class="ghost small" type="button">Restore built-in rules</button>
+    <button id="resetRules" class="ghost small" type="button" data-icon="restore">Restore built-in rules</button>
   </section>
   </div>
 </main>
+</div>
 
 <div class="savebar">
   <span id="saveMsg"></span>
-  <button id="save" class="primary" type="button" disabled>Save changes</button>
+  <button id="save" class="primary" type="button" disabled data-icon="save">Save changes</button>
 </div>
 
 <script src="../config.js"></script>

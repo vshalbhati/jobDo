@@ -32,7 +32,7 @@ function planned() {
   const out = new Map();
   const app = path.join(root, 'frontend', 'public', 'app');
   const dash = path.join(root, 'extension', 'src', 'dashboard');
-  for (const name of ['dashboard.css', 'dashboard.js', 'charts.js', 'source.js']) {
+  for (const name of ['dashboard.css', 'dashboard.js', 'charts.js', 'source.js', 'icons.js']) {
     const body = readFileSync(path.join(app, name), 'utf8');
     out.set(path.join(dash, name), name.endsWith('.js') ? banner('frontend/public/app') + body : body);
   }

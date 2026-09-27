@@ -6,6 +6,9 @@ import { parseResumeText, searchKeywordsFrom } from '../shared/resume.js';
 import { SITE_LIST } from '../shared/sites.js';
 import { ATS_LIST } from '../shared/ats.js';
 import { extractText, fileToDataUrl } from './extract.js';
+import { icon, hydrateIcons } from '../app/icons.js';
+
+hydrateIcons();
 
 const $ = (id) => document.getElementById(id);
 
@@ -37,7 +40,8 @@ async function fetchAccount() {
   cfg.profile = mergeConfig(base.profile, (current && current.profile) || {});
   resume = current;
   unknown = conf.unknownQuestions || [];
-  $('who').textContent = me.email;
+  $('who').innerHTML = icon('user');
+  $('who').append(me.email);
 }
 
 function renderAll() {
@@ -505,7 +509,7 @@ function collectSites() {
 function renderAtsList() {
   $('atsList').replaceChildren(...ATS_LIST.map((a) => {
     const chip = document.createElement('span');
-    chip.className = 'chip static';
+    chip.className = 'chip static ' + a.mode;
     chip.textContent = a.name + ' · ' + a.mode;
     return chip;
   }));
@@ -584,4 +588,23 @@ window.addEventListener('beforeunload', (e) => {
   $('loading').classList.add('hidden');
   $('form').classList.remove('hidden');
   if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
+  followSections();
 })();
+
+// Marks the sidebar link of the section being read. A section counts once its
+// top has passed the upper third of the window.
+function followSections() {
+  const links = [...document.querySelectorAll('.settings-nav a')];
+  const sections = links.map((a) => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  const mark = () => {
+    const line = window.innerHeight / 3;
+    let current = sections[0];
+    for (const sec of sections) if (sec.getBoundingClientRect().top <= line) current = sec;
+    // At the very bottom the last sections can never reach the line.
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) current = sections[sections.length - 1];
+    for (const a of links) a.setAttribute('aria-current', String(a.getAttribute('href') === '#' + current.id));
+  };
+  window.addEventListener('scroll', mark, { passive: true });
+  window.addEventListener('resize', mark);
+  mark();
+}
