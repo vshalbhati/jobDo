@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "jobDo",
   "version": "0.1.0",
-  "description": "Applies to the jobs that best match your resume on LinkedIn, Naukri and Indeed, one at a time with human-like pacing and safety caps. Set up on the jobDo website.",
+  "description": "Applies to the jobs that best match your resume on LinkedIn, Naukri and Indeed, with human-like pacing and daily caps.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
