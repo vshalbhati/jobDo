@@ -8,7 +8,7 @@ Storage for resume files.
 
 ```bash
 cd backend
-cp .env.example .env     # fill in SUPABASE_URL and SUPABASE_ANON_KEY
+# create .env with SUPABASE_URL and SUPABASE_ANON_KEY (see Configuration)
 npm install
 npm start
 ```
@@ -21,7 +21,7 @@ Confirm it with `npm run check:supabase`.
 | Variable | Default | Meaning |
 |---|---|---|
 | `SUPABASE_URL` | — | Project URL |
-| `SUPABASE_ANON_KEY` | — | anon/public key. The **only** key needed |
+| `SUPABASE_ANON_KEY` | — | anon/public key. The only key needed for everything a signed-in person does |
 | `PORT` | `8787` | |
 | `HOST` | `0.0.0.0` | |
 | `CORS_ORIGINS` | empty | Comma-separated frontend origins. Without this, browser calls are blocked |
@@ -36,6 +36,22 @@ Confirm it with `npm run check:supabase`.
 | `RANKER_TIMEOUT_MS` | `25000` | |
 | `UPSTASH_REDIS_REST_URL` | empty | Upstash Redis (REST URL, `https://`). Holds login rate-limit counts so every serverless instance shares them. Without it each instance counts on its own. `KV_REST_API_URL` also works |
 | `UPSTASH_REDIS_REST_TOKEN` | — | Required with the URL. `KV_REST_API_TOKEN` also works |
+| `SMTP_HOST` | empty | Outgoing mail for run reports, e.g. `smtp.gmail.com`. Empty turns reports off: `/api/runs/report` answers 503 |
+| `SMTP_PORT` | `465` | `465` is TLS from the start; `587` upgrades with STARTTLS |
+| `SMTP_USER` | — | The mailbox that sends, e.g. `you@gmail.com` |
+| `SMTP_PASS` | — | For Gmail, an **app password** (Google Account → Security → 2-Step Verification → App passwords), not your normal password. Spaces are ignored |
+| `MAIL_FROM` | `jobDo <SMTP_USER>` | The From line, e.g. `jobDo <you@gmail.com>`. Gmail rewrites any other address to `SMTP_USER` |
+| `WEB_URL` | `https://job-do.web.app` | Where links in emails point |
+| `CRON_SECRET` | empty | At least 24 characters. Supabase `pg_cron` sends it to `/api/cron/companies` to start the scheduled favourite-companies check. Empty turns the schedule off; "Check now" still works |
+| `SUPABASE_SERVICE_ROLE_KEY` | empty | Needed with `CRON_SECRET`, and used by nothing else: the scheduled check reads every account that is due. See the security notes below |
+
+### Email
+
+Run reports go out through any SMTP server. The same Gmail app password that
+Supabase uses for sign-up codes (`supabase/README.md`, step 3) works here: set
+`SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_USER`, `SMTP_PASS`.
+`/api/health` shows `"email": true` once all three are set. A personal Gmail
+account can send a few hundred messages a day, far more than one report per run.
 
 ### Cookies, and why SameSite matters
 
@@ -85,7 +101,18 @@ There is no database to provision: Supabase is the database.
 | GET | `/api/resumes/:id/file` | The original file |
 | GET | `/api/resumes/current/profile` | The parsed profile |
 | DELETE | `/api/resumes/:id` | |
-| GET | `/api/config` | Every setting, as `{ config: { sites, search, match, rank, schedule, safety, portal, answers, resume }, unknownQuestions }`. `match.minScore` is the ranking threshold |
+| GET | `/api/queue` | Your job list. `?status=pending` (oldest first) or `?status=done` (latest first), `&limit=` up to 2000. Returns `{ items, counts: { pending, done } }` |
+| POST | `/api/queue` | `{ items: [{ url, title, company, location }] }`, at most 1000. Only `http(s)` links; a link already on the list is skipped. Returns `{ added, duplicates, invalid, counts }`. At most 2000 waiting at once |
+| PATCH | `/api/queue/:id` | `{ status: "done", result, reason }` from the extension once it has tried a job (`result` is an application status), or `{ status: "pending" }` to try it again |
+| DELETE | `/api/queue/:id` | Removes one |
+| DELETE | `/api/queue` | `?status=done`, `?status=pending` or `?status=all` |
+| GET | `/api/companies` | Your favourite companies: `{ watch: { enabled, intervalHours, companies: [{ name, ats, slug }], locations, nextRunAt, lastRunAt, lastResult }, scheduler }`. `scheduler` says whether this server runs scheduled checks |
+| PUT | `/api/companies` | Any of `{ companies, enabled, intervalHours, locations, tz }`. Up to 30 companies on `greenhouse`, `lever`, `ashby` or `workday`; `intervalHours` 1-168. Switching on makes the first check due at once |
+| POST | `/api/companies/lookup` | `{ query }`: a company name or a careers page address. Returns `{ found: [{ ats, slug, name, jobs }], hint }`. 40 per 15 minutes |
+| POST | `/api/companies/check` | "Check now": reads the boards, ranks postings not seen before against your resume, and adds the matches to your job list. Returns `{ result, added, watch }`. 6 per 15 minutes |
+| POST | `/api/cron/companies` | For Supabase `pg_cron` only, with `Authorization: Bearer <CRON_SECRET>`. Checks up to 25 accounts that are due and emails each one its new matches |
+| POST | `/api/runs/report` | `{ startedAt, endedAt, ending, tz }` from the extension when a run ends. Emails the account's own address a report built from the account's own records in that window. `ending` is one of `done`, `maxPerRun`, `maxPerDay`, `stopped`, `errors`. `{ sent: false }` when nothing was recorded or `notify.emailReport` is off; 503 without SMTP; 10 per 15 minutes |
+| GET | `/api/config` | Every setting, as `{ config: { sites, search, match, rank, schedule, safety, portal, answers, resume, notify }, unknownQuestions }`. `match.minScore` is the ranking threshold |
 | PATCH | `/api/config` | `{ config: { section: { field: value } } }`. Replaces only the named fields of the named sections, so the extension can flip one switch without overwriting the rest |
 | POST | `/api/unknown-questions` | `{ questions: [...] }` from the extension: questions a run could not answer. Deduplicated by label, last 60 kept |
 | DELETE | `/api/unknown-questions` | `?label=` dismisses one; no label dismisses all |
@@ -108,10 +135,16 @@ of writing one more file.
 
 **Security notes worth knowing before you change anything here:**
 
-- Every Supabase call uses a client carrying *the caller's own access token*, so
-  Row Level Security applies to it. The `service_role` key is never used and is
-  not required to run this server. Access control lives in Postgres; this layer
-  does validation and shaping.
+- Every Supabase call made for a signed-in person uses a client carrying *their
+  own access token*, so Row Level Security applies to it. Access control lives
+  in Postgres; this layer does validation and shaping.
+- The one exception is `/api/cron/companies`, the scheduled favourite-companies
+  check, which runs with nobody signed in. It uses the `service_role` key
+  (`admin` in `providers.supabase.js`), which bypasses RLS, so that code names
+  the account in every query and can only read an account's settings, resume
+  and favourites and add to its job list. The route refuses any call without
+  `CRON_SECRET` (compared in constant time). Without `CRON_SECRET` and
+  `SUPABASE_SERVICE_ROLE_KEY` the key is never loaded.
 - Login says "wrong email or password" either way, and password reset always
   gives the same answer, so neither can be used to discover who has an account.
 - Uploaded filenames are sanitised before they reach a `Content-Disposition`
@@ -126,10 +159,11 @@ of writing one more file.
 npm test
 ```
 
-About 170 checks against a real listener using the in-memory providers — no
+About 270 checks against a real listener using the in-memory providers — no
 Supabase project, no network. They cover registration and login, token refresh
 and replay, the auth guard, upsert semantics, input sanitising, resume round-trips,
-match ratings and their export,
+match ratings and their export, run report emails (kept in an in-memory outbox),
+the job list, favourite companies against stand-in careers boards and the scheduler,
 header injection through filenames, CORS behaviour for allowed, unknown and
 extension origins, and cross-account isolation.
 

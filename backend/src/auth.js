@@ -9,6 +9,8 @@ const providers = config.providers === 'memory'
 
 export const auth = providers.auth;
 export const repoFor = providers.repoFor;
+// Only for the scheduled favourite-companies check (routes.js, /cron/companies).
+export const admin = providers.admin;
 
 const ACCESS_COOKIE = 'sb-access';
 const REFRESH_COOKIE = 'sb-refresh';
@@ -90,8 +92,8 @@ const MAX_ATTEMPTS = 10;
 // On serverless every instance has its own memory, so an in-memory count
 // lets an attacker multiply the limit by however many instances are warm.
 // With Redis configured the count is shared; if Redis is down, each instance
-// still enforces its own count rather than none.
-export async function rateLimit(key) {
+// still enforces its own count rather than none. `max` is per 15 minutes.
+export async function rateLimit(key, max = MAX_ATTEMPTS) {
   if (redisConfigured()) {
     try {
       const k = redisKey(key);
@@ -100,15 +102,15 @@ export async function rateLimit(key) {
         ['INCR', k],
         ['TTL', k]
       ]);
-      return { allowed: count <= MAX_ATTEMPTS, retryAfter: ttl > 0 ? ttl : WINDOW / 1000 };
+      return { allowed: count <= max, retryAfter: ttl > 0 ? ttl : WINDOW / 1000 };
     } catch (e) {
       console.error('Rate limit store unavailable, counting in memory: ' + e.message);
     }
   }
-  return memoryRateLimit(key);
+  return memoryRateLimit(key, max);
 }
 
-function memoryRateLimit(key) {
+function memoryRateLimit(key, max) {
   const now = Date.now();
   const hits = (attempts.get(key) || []).filter((t) => now - t < WINDOW);
   hits.push(now);
@@ -116,7 +118,7 @@ function memoryRateLimit(key) {
   if (attempts.size > 5000) {
     for (const [k, v] of attempts) if (!v.some((t) => now - t < WINDOW)) attempts.delete(k);
   }
-  return { allowed: hits.length <= MAX_ATTEMPTS, retryAfter: Math.ceil((WINDOW - (now - hits[0])) / 1000) };
+  return { allowed: hits.length <= max, retryAfter: Math.ceil((WINDOW - (now - hits[0])) / 1000) };
 }
 
 export async function clearRateLimit(key) {

@@ -49,6 +49,24 @@ export const config = {
   redisTimeoutMs: Number(process.env.REDIS_TIMEOUT_MS) || 1500,
   redisProblem: '',   // set below when the Redis settings are unusable
 
+  // Outgoing email (run reports), through any SMTP server - a Gmail address
+  // with an app password works: smtp.gmail.com, port 465. Optional: without
+  // it reports are simply not sent.
+  smtpHost: unquote(process.env.SMTP_HOST),
+  smtpPort: Number(process.env.SMTP_PORT) || 465,
+  smtpUser: unquote(process.env.SMTP_USER),
+  smtpPass: unquote(process.env.SMTP_PASS).replace(/\s+/g, ''),   // app passwords are shown with spaces
+  mailFrom: unquote(process.env.MAIL_FROM),                        // 'jobDo <you@gmail.com>'; defaults to SMTP_USER
+  // Where links in emails point.
+  webUrl: unquote(process.env.WEB_URL || 'https://job-do.web.app').replace(/\/+$/, ''),
+
+  // The scheduled favourite-companies check. Supabase's pg_cron calls
+  // /api/cron/companies with CRON_SECRET; that one route reads every account
+  // that is due, so it needs the service_role key. Nothing else uses it.
+  // Optional: without them, checks only run from the website's "Check now".
+  cronSecret: unquote(process.env.CRON_SECRET),
+  supabaseServiceRoleKey: unquote(process.env.SUPABASE_SERVICE_ROLE_KEY),
+
   maxResumeBytes: 8 * 1024 * 1024,
   maxBatch: 2000,
   // Characters of a posting kept with an application: the same amount the
@@ -73,6 +91,16 @@ export function validateConfig() {
   }
   if (config.rankerUrl && !config.rankerSecret) {
     problems.push('RANKER_SECRET must be set when RANKER_URL is (the same value as on the ranker).');
+  }
+  if (config.cronSecret && config.cronSecret.length < 24) {
+    problems.push('CRON_SECRET must be at least 24 characters (e.g. openssl rand -hex 32).');
+  }
+  if (config.providers === 'supabase' && config.cronSecret && !config.supabaseServiceRoleKey) {
+    problems.push('CRON_SECRET is set but SUPABASE_SERVICE_ROLE_KEY is not: the scheduled check needs both.');
+  }
+  const smtp = [config.smtpHost, config.smtpUser, config.smtpPass].filter(Boolean).length;
+  if (smtp && smtp < 3) {
+    problems.push('Email needs all three of SMTP_HOST, SMTP_USER and SMTP_PASS (or none of them).');
   }
   if (!['lax', 'none', 'strict'].includes(config.cookieSameSite)) {
     problems.push('COOKIE_SAMESITE must be lax, none or strict.');

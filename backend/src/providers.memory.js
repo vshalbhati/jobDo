@@ -15,6 +15,9 @@ const rows = [];                  // applications
 const resumeRows = [];            // resumes
 const files = new Map();          // storage path -> Buffer
 const settingsRows = new Map();   // user id -> { min_score, updated_at }
+const queueRows = [];             // job_queue
+const watchRows = new Map();      // user id -> company_watch
+const seenRows = new Map();       // user id -> Set of posting keys
 
 // Mirrors the Supabase project setting: when confirmation is required, signUp
 // creates the user but signIn refuses until the email is confirmed.
@@ -35,7 +38,8 @@ const newCode = (user) => {
 
 export function resetMemory() {
   usersByEmail.clear(); usersById.clear(); tokens.clear(); refreshTokens.clear();
-  rows.length = 0; resumeRows.length = 0; files.clear(); settingsRows.clear();
+  rows.length = 0; resumeRows.length = 0; files.clear(); settingsRows.clear(); queueRows.length = 0;
+  watchRows.clear(); seenRows.clear();
 }
 
 const err = (message, status) => { const e = new Error(message); e.status = status; return e; };
@@ -244,6 +248,59 @@ export function repoFor(user) {
       }
     },
 
+    queue: {
+      async list({ status: wanted, limit = 500 } = {}) {
+        return mine(queueRows)
+          .filter((r) => !wanted || r.status === wanted)
+          .sort((a, b) => (wanted === 'done' ? b.done_at - a.done_at : a.added_at - b.added_at))
+          .slice(0, limit)
+          .map(toQueueItem);
+      },
+
+      async counts() {
+        const list = mine(queueRows);
+        return {
+          pending: list.filter((r) => r.status === 'pending').length,
+          done: list.filter((r) => r.status === 'done').length
+        };
+      },
+
+      async add(items) {
+        return queueAdd(uid, items).length;
+      },
+
+      async addReturning(items) {
+        return queueAdd(uid, items);
+      },
+
+      async update(id, patch) {
+        const row = mine(queueRows).find((r) => r.id === id);
+        if (!row) return null;
+        Object.assign(row, patch.status === 'done'
+          ? { status: 'done', result: str(patch.result), reason: str(patch.reason), done_at: Date.now() }
+          : { status: 'pending', result: '', reason: '', done_at: null });
+        return toQueueItem(row);
+      },
+
+      async remove(id) {
+        const i = queueRows.findIndex((r) => r.id === id && r.user_id === uid);
+        if (i < 0) return false;
+        queueRows.splice(i, 1);
+        return true;
+      },
+
+      async clear(wanted) {
+        let n = 0;
+        for (let i = queueRows.length - 1; i >= 0; i--) {
+          const r = queueRows[i];
+          if (r.user_id === uid && (!wanted || r.status === wanted)) { queueRows.splice(i, 1); n++; }
+        }
+        return n;
+      }
+    },
+
+    ...watchRepo(uid),
+
     settings: {
       async get() {
         return view(settingsRows.get(uid));
@@ -276,10 +333,87 @@ const toRecord = (r) => ({
   status: r.status, reason: r.reason, score: r.score, source: r.source, ats: r.ats,
   site: r.site || 'linkedin', at: r.applied_at, feedback: r.feedback || null
 });
+function queueAdd(uid, items) {
+  const added = [];
+  for (const i of items) {
+    if (queueRows.some((r) => r.user_id === uid && r.url === i.url)) continue;
+    const row = {
+      id: crypto.randomUUID(), user_id: uid, url: i.url,
+      title: str(i.title), company: str(i.company), location: str(i.location),
+      origin: i.origin === 'company' ? 'company' : 'list',
+      status: 'pending', result: '', reason: '', score: score(i.score), note: str(i.note),
+      added_at: Date.now() + added.length, done_at: null
+    };
+    queueRows.push(row);
+    added.push(toQueueItem(row));
+  }
+  return added;
+}
+
+const WATCH_DEFAULTS = {
+  enabled: false, intervalHours: 24, companies: [], locations: '', tz: '',
+  nextRunAt: null, lastRunAt: null, lastResult: null
+};
+
+function watchRepo(uid) {
+  return {
+    watch: {
+      async get() { return structuredClone(watchRows.get(uid) || WATCH_DEFAULTS); },
+      async update(patch) {
+        const row = { ...(watchRows.get(uid) || WATCH_DEFAULTS) };
+        for (const k of Object.keys(WATCH_DEFAULTS)) if (patch[k] !== undefined) row[k] = structuredClone(patch[k]);
+        watchRows.set(uid, row);
+        return structuredClone(row);
+      }
+    },
+    seen: {
+      async unseen(keys) {
+        const known = seenRows.get(uid) || new Set();
+        return keys.filter((k) => !known.has(k));
+      },
+      async add(keys) {
+        const known = seenRows.get(uid) || new Set();
+        for (const k of keys) known.add(k);
+        seenRows.set(uid, known);
+      }
+    }
+  };
+}
+
+// The scheduler's access: every account, as Supabase's service_role has.
+export const admin = {
+  configured: () => true,
+
+  async dueAccounts(now, limit) {
+    return [...watchRows.entries()]
+      .filter(([, w]) => w.enabled && (!w.nextRunAt || w.nextRunAt <= now))
+      .sort(([, a], [, b]) => (a.nextRunAt || 0) - (b.nextRunAt || 0))
+      .slice(0, limit)
+      .map(([uid]) => uid);
+  },
+
+  repoFor(uid) {
+    const user = usersById.get(uid);
+    const full = repoFor({ id: uid, email: user ? user.email : '' });
+    return {
+      ...watchRepo(uid),
+      queue: { addReturning: full.queue.addReturning },
+      resumes: { current: full.resumes.current },
+      settings: { get: full.settings.get },
+      async email() { return user ? user.email : ''; }
+    };
+  }
+};
+
+const toQueueItem = (r) => ({
+  id: r.id, url: r.url, title: r.title, company: r.company, location: r.location,
+  origin: r.origin, status: r.status, result: r.result, reason: r.reason,
+  score: r.score, note: r.note, addedAt: r.added_at, doneAt: r.done_at
+});
 const str = (v) => (v === undefined || v === null ? '' : String(v));
-const description = (v) => str(v).slice(0, config.maxDescription).trim();
+const description =(v) => str(v).slice(0, config.maxDescription).trim();
 const score = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null);
 const VALID = new Set(['applied', 'needs_manual', 'failed', 'dry_run', 'skipped']);
 const status = (v) => (VALID.has(v) ? v : 'skipped');
-const SITES = new Set(['linkedin', 'naukri', 'indeed']);
+const SITES = new Set(['linkedin', 'naukri', 'indeed', 'direct']);
 const site = (v) => (SITES.has(v) ? v : 'linkedin');

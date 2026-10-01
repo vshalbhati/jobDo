@@ -223,13 +223,21 @@ export async function exportRatings() {
 
 // ------------------------------------------------------------------ actions
 
-// Settings are edited on the website. Inside the extension that page is on
-// another origin, so it opens in a tab at the account's web address.
+// Settings and the job list are pages of the website. Inside the extension
+// they are on another origin, so they open in a tab at the account's web address.
 export async function openSettings() {
-  if (!IS_EXTENSION) { location.href = '../settings/'; return; }
+  return openWebPage('settings/');
+}
+
+export async function openJobList() {
+  return openWebPage('jobs/');
+}
+
+async function openWebPage(path) {
+  if (!IS_EXTENSION) { location.href = '../' + path; return; }
   const cfg = await (await extStorage()).getConfig();
   const web = String(cfg.sync.webUrl || '').replace(/\/+$/, '');
-  if (web) chrome.tabs.create({ url: web + '/settings/' });
+  if (web) chrome.tabs.create({ url: web + '/' + path });
   else chrome.runtime.openOptionsPage();
 }
 

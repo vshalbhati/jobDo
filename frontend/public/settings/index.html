@@ -24,6 +24,7 @@
     <span id="who" class="who"></span>
     <button id="theme" class="icon-btn" type="button" title="Switch light / dark" aria-label="Switch light / dark" data-icon="contrast"></button>
     <a class="ghost" href="../app/" data-icon="dashboard"><span class="label">Dashboard</span></a>
+    <a class="ghost" href="../jobs/" data-icon="listChecks"><span class="label">Job list</span></a>
     <button id="signout" class="ghost" type="button" data-icon="logOut"><span class="label">Sign out</span></button>
   </div>
 </header>
@@ -210,6 +211,9 @@
       get seen first. Chrome has to be open with the extension signed in; if it was closed at that time,
       the run starts as soon as Chrome opens, any time before midnight.
     </p>
+    <div class="row">
+      <label><input type="checkbox" id="n-emailReport"> Email me a report when a run ends <em>what it applied to, and what is waiting on you</em></label>
+    </div>
     <div class="row">
       <label><input type="checkbox" id="f-dryRun"> Dry run <em>fill everything, never submit</em></label>
       <label><input type="checkbox" id="f-reviewBeforeSubmit"> Ask me before each submit</label>

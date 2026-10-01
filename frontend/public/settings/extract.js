@@ -58,10 +58,11 @@ async function extractDocx(file) {
 
 // --- just enough of the ZIP format to find one file -------------------------
 
-async function readZipEntry(buf, wantName) {
+// Also reads .xlsx job lists (jobs/sheet.js): both are zip files of XML.
+export async function readZipEntry(buf, wantName) {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const eocd = findSignature(dv, 0x06054b50);
-  if (eocd < 0) throw new Error('Not a valid .docx (no zip directory).');
+  if (eocd < 0) throw new Error('That file is damaged, or is not really a .docx or .xlsx (no zip directory).');
 
   const count = dv.getUint16(eocd + 10, true);
   let p = dv.getUint32(eocd + 16, true);

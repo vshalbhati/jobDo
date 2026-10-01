@@ -45,6 +45,23 @@ Once a day (2 PM by default) a run starts by itself on postings from the last 24
 hours, newest first, because early applicants get seen first. If Chrome is closed
 at 2 PM, it runs as soon as Chrome opens, any time before midnight.
 
+Before any of that, a run works through **your job list**: links you uploaded
+on the website's Job list page, from an `.xlsx` or `.csv` or pasted in. Those
+are not ranked (you picked them); a board link is applied to on its board, and
+anything else on the company's own site. Caps and pacing still apply.
+
+The same page keeps your **favourite companies**. The server reads their
+careers boards on whatever interval you set (Greenhouse, Lever, Ashby and
+Workday publish public listings; Google or Microsoft, with sites of their own,
+cannot be read by a server), ranks the postings it has not seen before, and adds
+the good matches to your job list. Applying still happens in Chrome, through the
+extension: application forms have CAPTCHAs and sign-ins a server cannot get
+past. Setting up the schedule is in `supabase/README.md`, section 6.
+
+When a run ends, the account's email address gets a **report**: what it applied
+to, what is waiting on you, and what did not go through. It needs SMTP settings
+on the backend (see `backend/README.md`) and can be switched off in Settings.
+
 ## Getting started
 
 **Using it:** create an account on the jobDo website, upload your resume in

@@ -209,7 +209,9 @@ pre {
 #saveMsg.err { color: var(--status-critical); }
 
 @media (max-width: 900px) {
-  .settings-layout { grid-template-columns: 1fr; gap: 12px; padding-top: 12px; }
+  /* minmax(0, ...): a plain 1fr column grows to fit the nav and wide tables,
+     which pushes the whole page sideways on a phone. */
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; padding-top: 12px; }
   .settings-side { position: sticky; top: 60px; z-index: 5; margin: 0 -24px; padding: 8px 24px; background: var(--page); }
   .settings-nav { flex-direction: row; overflow-x: auto; gap: 4px; scrollbar-width: none; }
   .settings-nav a { white-space: nowrap; }

@@ -68,6 +68,7 @@ function renderAll() {
 
   $('sc-enabled').checked = !!cfg.schedule.enabled;
   $('sc-time').value = cfg.schedule.time || '14:00';
+  $('n-emailReport').checked = cfg.notify.emailReport !== false;
   $('f-dryRun').checked = cfg.safety.dryRun;
   $('f-reviewBeforeSubmit').checked = cfg.safety.reviewBeforeSubmit;
   $('f-stopOnUnknownQuestion').checked = cfg.safety.stopOnUnknownQuestion;
@@ -176,6 +177,7 @@ function collect() {
         enabled: $('sc-enabled').checked,
         time: /^\d{1,2}:\d{2}$/.test($('sc-time').value) ? $('sc-time').value : '14:00'
       },
+      notify: { emailReport: $('n-emailReport').checked },
       safety: {
         dryRun: $('f-dryRun').checked,
         reviewBeforeSubmit: $('f-reviewBeforeSubmit').checked,

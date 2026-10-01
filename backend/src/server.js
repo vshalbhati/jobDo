@@ -2,6 +2,7 @@ import express from 'express';
 import { config, validateConfig } from './config.js';
 import { api } from './routes.js';
 import { rankerConfigured } from './ranker.js';
+import { mailConfigured } from './mail.js';
 import { pipeline, redisConfigured } from './redis.js';
 
 const problems = validateConfig();
@@ -49,6 +50,8 @@ app.get('/api/health', async (_req, res) => res.json({
   providers: config.providers,
   signupOpen: config.allowSignup,
   ranking: rankerConfigured(),
+  email: mailConfigured(),
+  companyChecks: !!(config.cronSecret && (config.providers === 'memory' || config.supabaseServiceRoleKey)),
   rateLimits: await rateLimitStore()
 }));
 

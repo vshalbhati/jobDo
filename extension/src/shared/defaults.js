@@ -123,6 +123,12 @@ export function defaultConfig() {
       lastRunDay: ''     // Date.toDateString() of the last day it started
     },
 
+    // Emails to your account's address. The server reads these; the
+    // extension only says when a run has ended.
+    notify: {
+      emailReport: true          // a report of each run, when it ends
+    },
+
     safety: {
       dryRun: true,              // walk the whole flow but never press Submit
       reviewBeforeSubmit: false, // stop on the review step and wait for you

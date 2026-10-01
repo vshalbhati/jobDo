@@ -14,6 +14,11 @@ public/
     charts.js       hand-rolled SVG charts
     source.js       chrome.storage or the REST API, decided at load
     dashboard.css
+  settings/         every setting, saved to the account
+  jobs/
+    index.html      your job list and favourite companies
+    sheet.js        reads .xlsx / .csv / pasted links, in the browser
+    jobs.js  jobs.css
 ```
 
 ## Run it locally

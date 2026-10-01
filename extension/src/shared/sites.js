@@ -120,6 +120,29 @@ export function siteForUrl(url) {
   return SITE_LIST.find((s) => s.host.test(host)) || null;
 }
 
+// A job link as one job: which board it is on (if any), its id there, and one
+// canonical address, so the same job pasted twice with different tracking
+// parameters is still one job. Returns null for anything that is not a web link.
+export function jobFromUrl(raw) {
+  let u;
+  try { u = new URL(String(raw || '').trim()); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  u.hash = '';
+  const site = siteForUrl(u.href);
+  const id = (re, s) => { const m = s.match(re); return m ? m[1] : ''; };
+  if (site && site.id === 'linkedin') {
+    const jobId = id(/\/jobs\/view\/(?:[^/]*?-)?(\d{6,})/, u.pathname) || u.searchParams.get('currentJobId') || '';
+    if (/^\d+$/.test(jobId)) return { site: 'linkedin', jobId, url: 'https://www.linkedin.com/jobs/view/' + jobId + '/' };
+  } else if (site && site.id === 'naukri') {
+    const jobId = id(/-(\d{8,})$/, u.pathname.replace(/\/+$/, '')) || u.searchParams.get('jobId') || '';
+    if (/^\d+$/.test(jobId)) return { site: 'naukri', jobId, url: 'https://www.naukri.com' + u.pathname.replace(/\/+$/, '') };
+  } else if (site && site.id === 'indeed') {
+    const jobId = u.searchParams.get('jk') || u.searchParams.get('vjk') || '';
+    if (/^[\w-]+$/.test(jobId)) return { site: 'indeed', jobId, url: 'https://' + u.hostname + '/viewjob?jk=' + jobId };
+  }
+  return { site: '', jobId: '', url: u.href };
+}
+
 export function defaultSiteSettings() {
   return {
     linkedin: { enabled: true, maxPerRun: 20 },

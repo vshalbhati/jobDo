@@ -9,7 +9,7 @@ save the database password somewhere safe.
 
 ## 2. Apply the schema
 
-Run the migrations in order — `0001_init.sql` through `0005_ranking_feedback.sql` —
+Run the migrations in order — `0001_init.sql` through `0007_company_watch.sql` —
 either by pasting each into **SQL Editor → New query**, or with the CLI:
 
 ```bash
@@ -24,7 +24,12 @@ widens the uniqueness key to `(user, board, job id)`, since the same job id can
 exist on two different boards. It is safe to run on an existing database:
 existing rows default to `linkedin`. `0005` keeps the posting text with each
 application and adds your match rating (`feedback`), which the dashboard sets
-and `ranker/evaluate.py` checks the ranker against.
+and `ranker/evaluate.py` checks the ranker against. `0006` adds your job list
+(`job_queue`): links uploaded on the website's Job list page, which a run
+applies to before it searches the boards. It also lets an application be
+recorded under `direct`, for links to a company's own site. `0007` adds your
+favourite companies (`company_watch`) and the postings already considered for
+them (`company_seen`); section 6 below sets up the schedule that checks them.
 
 ## 3. Confirm new accounts with an emailed code
 
@@ -63,9 +68,15 @@ from one address lock that address out for fifteen minutes.
 - **Project URL** → `SUPABASE_URL`
 - **anon / public key** → `SUPABASE_ANON_KEY`
 
-Do **not** put the `service_role` key in the backend. It bypasses Row Level
-Security, and this server deliberately never uses it — every query runs with
-the signed-in user's own token so the database enforces isolation itself.
+Everything a signed-in person does runs with their own token, so the database
+enforces isolation itself; the `anon` key is all that needs.
+
+The `service_role` key bypasses Row Level Security. The backend uses it for one
+thing only, and only if you set it: the **scheduled** favourite-companies check
+(section 6), which has to read every account that is due while nobody is signed
+in. That code names the account in every query and can only read the settings,
+resume and favourites it needs and add to that account's job list. If you skip
+section 6, leave `SUPABASE_SERVICE_ROLE_KEY` unset.
 
 ## 5. Check it
 
@@ -100,6 +111,51 @@ CHECK_EMAIL=you@example.com CHECK_PASSWORD=... npm run check:supabase
 That uploads a small file to your own folder, reads it back, confirms the
 public URL is **not** reachable, confirms a write into another account's folder
 is refused, and cleans up after itself.
+
+## 6. Schedule the favourite-companies check (optional)
+
+On the website's **Job list** page you can pick companies whose jobs are listed
+on Greenhouse, Lever, Ashby or Workday, and how often to check them. The checks
+themselves are started by Supabase: `pg_cron` calls the backend every 15
+minutes, and the backend checks the accounts whose interval has come round.
+Without this, only the page's **Check now** button runs a check.
+
+1. Make a secret, at least 24 characters: `openssl rand -hex 32`.
+2. On the backend (Vercel → Settings → Environment Variables) set
+   `CRON_SECRET` to it and `SUPABASE_SERVICE_ROLE_KEY` to the **service_role**
+   key from **Project Settings → API**. Redeploy. `/api/health` then shows
+   `"companyChecks": true`.
+3. **Database → Extensions**: switch on `pg_cron` and `pg_net`.
+4. In the SQL editor, with your secret and API address filled in:
+
+   ```sql
+   -- The secret lives in Vault, not in the job's text.
+   select vault.create_secret('PASTE-THE-SAME-CRON_SECRET', 'jobdo_cron_secret');
+
+   select cron.schedule(
+     'jobdo-favourite-companies',
+     '*/15 * * * *',
+     $$
+     select net.http_post(
+       url := 'https://job-do.vercel.app/api/cron/companies',
+       headers := jsonb_build_object(
+         'Content-Type', 'application/json',
+         'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'jobdo_cron_secret')
+       ),
+       body := '{}'::jsonb,
+       timeout_milliseconds := 60000
+     );
+     $$
+   );
+   ```
+
+To see it working: `select * from cron.job_run_details order by start_time desc limit 5;`
+shows each call, and `select status_code, content from net._http_response order by created desc limit 5;`
+what the API answered (`{"due":..,"checked":..,"added":..}`; a `401` means the
+two secrets differ). To stop it: `select cron.unschedule('jobdo-favourite-companies');`
+
+Each call checks up to 25 due accounts and stops starting new ones after 45
+seconds; whatever is left is picked up 15 minutes later.
 
 ## How isolation works
 

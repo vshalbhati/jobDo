@@ -294,6 +294,26 @@ export async function pushUnknownQuestions(cfg, questions) {
   return authedCall(cfg, '/unknown-questions', { method: 'POST', body: { questions: questions.slice(-20) } });
 }
 
+// Your job list: links to apply to before searching the boards, added on the
+// website. A run takes the waiting ones and marks each done once tried.
+export async function fetchQueue(cfg, limit = 200) {
+  return authedCall(cfg, '/queue?status=pending&limit=' + limit);
+}
+
+export async function finishQueueItem(cfg, id, result, reason) {
+  return authedCall(cfg, '/queue/' + encodeURIComponent(id), {
+    method: 'PATCH', body: { status: 'done', result, reason: String(reason || '').slice(0, 500) }
+  });
+}
+
+// The email at the end of a run. The server builds it from the records this
+// run has already uploaded, so all it needs is which run, and how it ended.
+export async function sendRunReport(cfg, { startedAt, endedAt, ending }) {
+  let tz = '';
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { /* the server falls back to UTC */ }
+  return authedCall(cfg, '/runs/report', { method: 'POST', body: { startedAt, endedAt, ending, tz } });
+}
+
 // ------------------------------------------------------------------ ranking
 
 // Scores postings with the ranker on the server, against your resume and

@@ -2,8 +2,11 @@ import { getConfig, setConfig, getHistory, recordApplication, forgetHistory, log
 import { scoreJob, hardSkip } from '../shared/matcher.js';
 import { searchKeywordsFrom } from '../shared/resume.js';
 import { ATS_LIST, detectAts, isLinkedInRedirect } from '../shared/ats.js';
-import { SITES, siteForUrl } from '../shared/sites.js';
-import { autoPush, autoPushMany, isConnected, rankRemote, pullAccount, pushUnknownQuestions } from '../shared/sync.js';
+import { SITES, siteForUrl, jobFromUrl } from '../shared/sites.js';
+import {
+  autoPush, autoPushMany, isConnected, rankRemote, pullAccount, pushUnknownQuestions, sendRunReport,
+  fetchQueue, finishQueueItem
+} from '../shared/sync.js';
 import { isDue, scheduledAt } from '../shared/schedule.js';
 
 const CONTENT_FILES = [
@@ -47,6 +50,13 @@ const READ_PAUSE_MS = [1500, 4000]; // between reading two postings
 // The daily run looks only at fresh postings, newest first: applying early is
 // the point of it.
 const FRESH_SEARCH = { datePosted: 'r86400', sortBy: 'DD' };
+
+// Your job list (links added on the website) is worked through first, as a
+// stage of its own ahead of the boards.
+const LIST = 'list';
+const LIST_PER_RUN = 200;           // links taken from the list per run
+// A LinkedIn job opens in the side pane of a results page.
+const LINKEDIN_PANE = 'https://www.linkedin.com/jobs/search/';
 
 chrome.runtime.onInstalled.addListener(async () => {
   await setConfig({});
@@ -190,23 +200,38 @@ async function startRun({ scheduled = false } = {}) {
   }
   if (!cfg.resume.text) throw new Error('Upload your resume on the jobDo website first (Settings → 1. Resume).');
 
-  const sites = enabledSites(cfg);
-  if (!sites.length) throw new Error('No job boards are switched on. Pick at least one in Settings.');
+  let list = [];
+  try {
+    list = ((await fetchQueue(cfg, LIST_PER_RUN)).items || []).map((i) => ({
+      id: i.id, url: i.url, title: i.title || '', company: i.company || '', location: i.location || '',
+      score: typeof i.score === 'number' ? i.score : null, note: i.note || ''
+    }));
+  } catch (e) {
+    log('warn', 'Could not download your job list (' + e.message + '); going straight to the job boards.');
+  }
+
+  const boards = enabledSites(cfg);
+  if (!boards.length && !list.length) {
+    throw new Error('No job boards are switched on and your job list is empty. Pick a board in Settings, or add jobs to the list.');
+  }
+  const sites = list.length ? [LIST, ...boards] : boards;
 
   const run = await getRun();
   if (run.active) return { ok: true, already: true };
 
-  const tabId = await ensureTab(null, SITES[sites[0]]);
+  const tabId = await ensureTab(null, SITES[boards[0] || 'linkedin']);
   stopRequested = false;
   await setRun({
     active: true, paused: false, applied: 0, seen: 0, skipped: 0, failed: 0,
     startedAt: Date.now(), phase: 'starting', current: null, tabId,
     portalApplied: 0, searchUrl: '', sites, siteId: sites[0], perSite: {},
     scheduled, threshold: null, rankMode: '', warnedLocal: false,
+    ending: '', reportSent: false, list,
     ...FRESH_BOARD
   });
   await setConfig({ enabled: true });
-  log('info', (scheduled ? 'Daily run' : 'Run') + ' started on ' + sites.map((s) => SITES[s].name).join(', ') +
+  log('info', (scheduled ? 'Daily run' : 'Run') + ' started on ' +
+    [list.length ? 'your job list (' + list.length + ')' : '', ...boards.map((s) => SITES[s].name)].filter(Boolean).join(', ') +
     (cfg.safety.dryRun ? ' (DRY RUN - nothing will be submitted)' : ''));
   runLoop().catch((e) => log('error', 'run loop crashed: ' + e.message));
   return { ok: true };
@@ -214,12 +239,31 @@ async function startRun({ scheduled = false } = {}) {
 
 async function stopRun() {
   stopRequested = true;
-  await setRun({ active: false, phase: 'stopped' });
+  await setRun({ active: false, phase: 'stopped', ending: 'stopped' });
   await setConfig({ enabled: false });
   const run = await getRun();
   if (run.tabId) send(run.tabId, { type: 'ABORT' }).catch(() => {});
   log('info', 'Run stopped.');
+  // A live loop sends the report once its current job has been recorded.
+  if (!loopRunning) reportRun();
   return { ok: true };
+}
+
+// Emails the run's report, once per run. Records are uploaded as the run
+// goes, so by now the server has them; the report is built from those.
+async function reportRun() {
+  const run = await getRun();
+  // Strictly false: runs from before reports existed have no flag at all.
+  if (run.reportSent !== false || !run.startedAt) return;
+  await setRun({ reportSent: true });
+  const cfg = await getConfig();
+  if (!isConnected(cfg)) return;
+  try {
+    const out = await sendRunReport(cfg, { startedAt: run.startedAt, endedAt: Date.now(), ending: run.ending || 'done' });
+    if (out && out.sent) log('info', 'Emailed the run report to ' + out.to + '.');
+  } catch (e) {
+    log('warn', 'Could not email the run report: ' + e.message);
+  }
 }
 
 // ------------------------------------------------------------------ the loop
@@ -245,13 +289,24 @@ async function runLoop() {
 
       if (run.applied >= cfg.safety.maxPerRun) {
         log('info', 'Reached maxPerRun (' + cfg.safety.maxPerRun + ').');
+        await setRun({ ending: 'maxPerRun' });
         break;
       }
       if (await dailyCapReached(cfg)) {
         log('info', 'Reached maxPerDay (' + cfg.safety.maxPerDay + ').');
+        await setRun({ ending: 'maxPerDay' });
         break;
       }
-      if (!run.siteId) { log('info', 'All boards done.'); break; }
+      if (!run.siteId) { log('info', 'All boards done.'); await setRun({ ending: 'done' }); break; }
+
+      if (run.siteId === LIST) {
+        const tabId = await ensureTab(run.tabId, SITES.linkedin);
+        if (tabId !== run.tabId) run = await setRun({ tabId });
+        const more = await listNext(cfg, run, tabId);
+        if (!more) await nextSite(run);
+        consecutiveErrors = 0;
+        continue;
+      }
 
       const site = SITES[run.siteId];
       const siteCfg = cfg.sites[run.siteId] || {};
@@ -276,7 +331,7 @@ async function runLoop() {
      } catch (e) {
       consecutiveErrors++;
       log('error', 'iteration failed (' + consecutiveErrors + '/3): ' + (e && e.message ? e.message : String(e)));
-      if (consecutiveErrors >= 3) break;
+      if (consecutiveErrors >= 3) { await setRun({ ending: 'errors' }); break; }
       await sleep(5000);
      }
     }
@@ -288,6 +343,7 @@ async function runLoop() {
       await setConfig({ enabled: false });
       log('info', 'Run finished. Applied ' + run.applied + ', skipped ' + run.skipped + ', failed ' + run.failed + '.');
     }
+    await reportRun();
   }
 }
 
@@ -297,6 +353,7 @@ const historyKey = (job, siteId) => (job.site || siteId || 'linkedin') + ':' + j
 async function nextSite(run) {
   const remaining = (run.sites || []).filter((s) => s !== run.siteId);
   const siteId = remaining[0] || null;
+  if (run.siteId === LIST) log('info', 'Your job list: done for this run.');
   if (siteId) log('info', 'Moving on to ' + SITES[siteId].name + '.');
   return setRun({ sites: remaining, siteId, ...FRESH_BOARD });
 }
@@ -527,7 +584,15 @@ async function applyNext(cfg, run, tabId, site) {
   await setRun({ ranked, current: job, phase: site.name + ': opening a ' + job.score + '-point match' });
 
   const outcome = await processJob(job, cfg, tabId, site);
-  run = await getRun();
+  const counts = await recordOutcome(job, outcome, site.name);
+  await pace(cfg, outcome, counts, tabId);
+  return true;
+}
+
+// Counts, records and uploads one finished application. Returns the run's
+// new counts.
+async function recordOutcome(job, outcome, label) {
+  const run = await getRun();
   const counts = {
     applied: run.applied + (outcome.status === 'applied' ? 1 : 0),
     skipped: run.skipped + (['skipped', 'dry_run', 'needs_manual'].includes(outcome.status) ? 1 : 0),
@@ -553,9 +618,13 @@ async function applyNext(cfg, run, tabId, site) {
   if (outcome.unknowns && outcome.unknowns.length) await recordUnknowns(outcome.unknowns, job);
 
   log(outcome.status === 'failed' ? 'error' : 'info',
-    site.name + ' ' + outcome.status.toUpperCase() + ' (' + job.score + '): ' + job.title + ' @ ' + job.company + ' - ' + outcome.reason);
+    label + ' ' + outcome.status.toUpperCase() + (typeof job.score === 'number' ? ' (' + job.score + ')' : '') + ': ' +
+    (job.title || describeUrl(job.url)) + (job.company ? ' @ ' + job.company : '') + ' - ' + outcome.reason);
+  return counts;
+}
 
-  // --- pace ourselves -------------------------------------------------------
+// The wait between two applications, and now and then a long break.
+async function pace(cfg, outcome, counts, tabId) {
   if (outcome.status === 'applied' && cfg.safety.longBreakEvery
       && counts.applied % cfg.safety.longBreakEvery === 0) {
     const mins = cfg.safety.longBreakMinutes;
@@ -568,7 +637,84 @@ async function applyNext(cfg, run, tabId, site) {
     await setRun({ phase: 'waiting ' + Math.round(wait / 1000) + 's' });
     await longSleep(wait, tabId);
   }
+}
+
+// ----------------------------------------------------------------- job list
+
+// One link from your job list. You chose these, so there is no ranking and no
+// title filter, and the company site is used even with company-site mode
+// off - but the run's caps and pacing apply as they do on the boards. Returns
+// false when the list is done for this run.
+async function listNext(cfg, run, tabId) {
+  if (!run.list || !run.list.length) return false;
+  const list = run.list.slice();
+  const item = list.shift();
+  const job = listJob(item);
+  await setRun({ list, current: { ...job, title: job.title || describeUrl(job.url) }, phase: 'Your job list: opening ' + describeUrl(job.url) });
+
+  const history = await getHistory();
+  const prior = history[historyKey(job)];
+  if (prior && prior.status === 'applied') {
+    log('info', 'Your job list: already applied to ' + (job.title || describeUrl(job.url)) + '.');
+    await markListItem(cfg, item, { status: 'skipped', reason: 'already applied' });
+    await setRun({ current: null, skipped: (await getRun()).skipped + 1 });
+    return true;
+  }
+
+  const listCfg = { ...cfg, portal: { ...cfg.portal, enabled: true, maxPerRun: Number.MAX_SAFE_INTEGER } };
+  let outcome;
+  const site = SITES[job.site];
+  if (site) {
+    outcome = await processJob(site.openStrategy === 'navigate' ? job : { ...job, pageUrl: LINKEDIN_PANE }, listCfg, tabId, site);
+  } else {
+    outcome = await applyDirect(job, listCfg, tabId);
+  }
+  // A link pasted without a name is recorded under the name its page shows.
+  const named = { ...job, title: job.title || outcome.pageTitle || '', company: job.company || outcome.pageCompany || '' };
+  const counts = await recordOutcome(named, outcome, 'Your job list:');
+  // A dry run leaves the link on the list, to be applied to for real later.
+  if (outcome.status !== 'dry_run') await markListItem(cfg, item, outcome);
+  await pace(cfg, outcome, counts, tabId);
   return true;
+}
+
+// A link on a job board is that board's job, so it is recorded once however
+// it was found; any other link is recorded as 'direct', under its list id.
+function listJob(item) {
+  const parsed = jobFromUrl(item.url) || { site: '', jobId: '', url: item.url };
+  return {
+    jobId: parsed.jobId || item.id,
+    site: parsed.site || 'direct',
+    url: parsed.url,
+    title: item.title, company: item.company, location: item.location,
+    score: item.score, rankNote: item.note
+  };
+}
+
+async function markListItem(cfg, item, outcome) {
+  try {
+    await finishQueueItem(cfg, item.id, outcome.status, outcome.reason);
+  } catch (e) {
+    log('warn', 'Could not mark it done on your job list (' + e.message + '); it will come up again next run.');
+  }
+}
+
+// A link to the employer's own site, or its applicant tracking system: opened
+// in a tab of its own, as a board's Apply button would open it, and worked
+// through by the same company-site engine.
+async function applyDirect(job, cfg, boardTabId) {
+  await setRun({ phase: 'Your job list: opening ' + describeUrl(job.url) });
+  const boardTab = await chrome.tabs.get(boardTabId).catch(() => null);
+  const tab = await chrome.tabs.create({ url: job.url, active: true, ...(boardTab ? { windowId: boardTab.windowId } : {}) });
+  let keepTab = false;
+  try {
+    const result = await applyOnCompanySite(job, cfg, tab.id);
+    keepTab = !!result.keepTab;
+    const shown = await chrome.tabs.get(tab.id).catch(() => null);
+    return { ...result, source: 'portal', pageTitle: String((shown && shown.title) || '').trim().slice(0, 200) };
+  } finally {
+    await closePortalTab(tab.id, false, keepTab, boardTabId, cfg);
+  }
 }
 
 // Writes skipped postings to history and uploads them in one request, with
@@ -624,7 +770,7 @@ async function processJob(job, cfg, tabId, site) {
   const opened = await openJob(job, tabId, site, true);
   if (!opened.ok) return { status: 'failed', reason: opened.reason };
   const outcome = await applyOpened(job, opened, cfg, tabId, site);
-  return { ...outcome, description: opened.description || '' };
+  return { ...outcome, description: opened.description || '', pageTitle: opened.title || '', pageCompany: opened.company || '' };
 }
 
 async function applyOpened(job, opened, cfg, tabId, site) {
@@ -636,7 +782,8 @@ async function applyOpened(job, opened, cfg, tabId, site) {
     company: opened.company || job.company,
     description: opened.description
   };
-  log('info', 'APPLYING (' + job.score + '): ' + full.title + ' @ ' + full.company + (job.rankNote ? ' - ' + job.rankNote : ''));
+  log('info', 'APPLYING' + (typeof job.score === 'number' ? ' (' + job.score + ')' : '') + ': ' +
+    full.title + ' @ ' + full.company + (job.rankNote ? ' - ' + job.rankNote : ''));
   await setRun({ phase: site.name + ': applying', current: { ...full, description: undefined, score: job.score } });
 
   // Indeed Apply leaves the site for smartapply.indeed.com, so it is driven by
