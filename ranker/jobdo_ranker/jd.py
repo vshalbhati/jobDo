@@ -493,6 +493,10 @@ def parse_job(title, description, extra_skills=(), company="", location=""):
     hits = sk.find_skills(text, extra_skills, spans=known)
     weights = {}
     for name, offsets in hits.items():
+        # Code review, agile, stakeholder management: every posting asks for
+        # them and few resumes spell them out, so they say nothing about fit.
+        if sk.is_soft(name):
+            continue
         best = 0.0
         for o in offsets:
             span = _span_at(spans, starts, o)
@@ -518,10 +522,16 @@ def parse_job(title, description, extra_skills=(), company="", location=""):
 
     info.families = roles.families(title)
     info.level = roles.title_level(title)
-    if info.level is None and info.years_min is not None:
+    if info.years_min is not None:
         y = info.years_min
-        info.level = 1 if y < 2 else 2 if y < 5 else 3 if y < 8 else 4
-        info.level_inferred = True
+        by_years = 1 if y < 2 else 2 if y < 5 else 3 if y < 8 else 4
+        if info.level is None:
+            info.level = by_years
+            info.level_inferred = True
+        elif by_years < info.level:
+            # "Senior Developer, 2-4 years": the years say what the role is
+            # better than the word does. One level down at most.
+            info.level = max(by_years, info.level - 1)
 
     info.relevant_text = _relevant(text, spans)
     return info

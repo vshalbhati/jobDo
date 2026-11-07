@@ -18,13 +18,14 @@ async function render() {
   $('phase').textContent = run.active ? (run.phase || 'running') : (run.phase === 'finished' ? 'finished' : 'idle');
   $('job').textContent = run.current ? run.current.title + ' · ' + run.current.company : '';
   $('c-applied').textContent = run.applied;
-  $('c-skipped').textContent = run.skipped;
+  $('c-you').textContent = run.needsYou || 0;
   $('c-failed').textContent = run.failed;
-  $('c-seen').textContent = run.seen;
+  $('c-skipped').textContent = run.skipped;
 
   const today = new Date().toDateString();
   const used = cfg.stats.day === today ? cfg.stats.appliedToday : 0;
-  $('today').textContent = 'Today: ' + used + ' of ' + cfg.safety.maxPerDay + ' · this run stops at ' + cfg.safety.maxPerRun +
+  $('today').textContent = (run.seen ? 'Read ' + run.seen + ' this run · ' : '') +
+    'Today: ' + used + ' of ' + cfg.safety.maxPerDay + ' · this run stops at ' + cfg.safety.maxPerRun +
     ' · ' + describeNextRun(cfg);
 
   $('dryRun').checked = !!cfg.safety.dryRun;

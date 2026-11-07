@@ -36,16 +36,16 @@ export function hardSkip(job, profile, matchCfg) {
   const desc = (job.description || '').toLowerCase();
 
   for (const bad of (matchCfg.companyBlocklist || [])) {
-    if (bad && company.includes(bad.toLowerCase())) return 'company blocklisted: ' + bad;
+    if (bad && hasWord(company, bad)) return 'company blocklisted: ' + bad;
   }
   for (const bad of (matchCfg.titleExclude || [])) {
-    if (bad && title.includes(bad.toLowerCase())) return 'title excluded: ' + bad;
+    if (bad && hasWord(title, bad)) return 'title excluded: ' + bad;
   }
   for (const bad of (matchCfg.descriptionExclude || [])) {
-    if (bad && desc && desc.includes(bad.toLowerCase())) return 'description excluded: ' + bad;
+    if (bad && desc && hasWord(desc, bad)) return 'description excluded: ' + bad;
   }
   const includes = (matchCfg.titleInclude || []).filter(Boolean);
-  if (includes.length && !includes.some((w) => title.includes(w.toLowerCase()))) {
+  if (includes.length && !includes.some((w) => hasWord(title, w))) {
     return 'title missing all of: ' + includes.join(', ');
   }
 
@@ -92,7 +92,8 @@ function scoreSkills(desc, profile, reasons) {
 // of an application; so is a 15-year resume against an internship.
 function scoreSeniority(title, profile, reasons) {
   const years = profile.defaultYears || 0;
-  const senior = /\b(principal|staff|distinguished|head of|chief|vp|vice president|director)\b/.test(title);
+  // "Member of Technical Staff" is not a staff-level title.
+  const senior = /\b(principal|(?<!technical )staff|distinguished|head of|chief|vp|vice president|director)\b/.test(title);
   const lead = /\b(senior|sr\.?|lead|manager|architect)\b/.test(title);
   const junior = /\b(intern|internship|trainee|graduate|entry[ -]level|junior|jr\.?|fresher)\b/.test(title);
 
@@ -104,11 +105,40 @@ function scoreSeniority(title, profile, reasons) {
 
 const STOP = new Set(['a', 'an', 'the', 'of', 'and', 'or', 'for', 'in', 'at', 'to', 'with', 'i', 'ii', 'iii', 'iv', 'senior', 'sr', 'junior', 'jr', 'lead', 'staff', 'principal']);
 
+// The same job, said differently: "SDE II" and "Programmer Analyst" share no
+// word with "Software Developer", and used to be dropped before being read.
+const SAME_PHRASE = [
+  [/\bfront[\s-]?end\b/g, 'frontend'],
+  [/\bback[\s-]?end\b/g, 'backend'],
+  [/\bfull[\s-]?stack\b/g, 'fullstack'],
+  [/\b(sde|swe|software development engineer)\b/g, 'software developer'],
+  [/\b(mts|member of (the )?technical staff)\b/g, 'software developer']
+];
+const SAME_WORD = { engineer: 'developer', engineers: 'developer', developers: 'developer', programmer: 'developer', programmers: 'developer', dev: 'developer' };
+
 function tokens(s) {
-  return s.toLowerCase()
+  let t = s.toLowerCase();
+  for (const [re, to] of SAME_PHRASE) t = t.replace(re, to);
+  return t
     .replace(/[^a-z0-9+#.\s-]/g, ' ')
     .split(/[\s\-/]+/)
+    .map((w) => SAME_WORD[w] || w)
     .filter((w) => w.length > 1 && !STOP.has(w));
+}
+
+// A filter word as a whole word: "intern" is not "Internal" or "International".
+// Plurals and "-ship" still count ("interns", "internship").
+export function hasWord(textLower, term) {
+  const t = String(term || '').toLowerCase().trim();
+  if (!t) return false;
+  const esc = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const left = /^[a-z0-9]/.test(t) ? '(?<![a-z0-9])' : '';
+  const right = /[a-z0-9]$/.test(t) ? '(?:e?s|ships?)?(?![a-z0-9])' : '';
+  try {
+    return new RegExp(left + esc + right, 'i').test(textLower);
+  } catch {
+    return textLower.includes(t);
+  }
 }
 
 // Builds the LinkedIn jobs search URL. f_AL=true is the Easy Apply filter; it

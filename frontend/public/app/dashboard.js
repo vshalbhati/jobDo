@@ -382,7 +382,8 @@ async function renderLive() {
   if (run.active) {
     if (run.phase) bits.push(run.phase);
     if (run.current) bits.push(run.current.title + ' · ' + run.current.company);
-    bits.push('this run: ' + run.applied + ' applied, ' + run.skipped + ' skipped, ' + run.failed + ' failed');
+    bits.push('this run: ' + run.applied + ' applied, ' + (run.needsYou || 0) + ' handed to you, ' +
+      run.failed + ' failed, ' + run.skipped + ' skipped');
   } else if (summary && summary.mode === 'web') {
     bits.push(summary.applications.toLocaleString() + ' applications on this account');
     bits.push(summary.resume ? 'resume: ' + summary.resume.filename : 'no resume uploaded yet');

@@ -16,7 +16,7 @@ from .text import content_terms, cosine, tfidf_vectors
 
 # Part of every cache key: bump it whenever parsing or candidate building
 # changes, so entries written by the old code are never read by the new.
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __all__ = ["rank_jobs", "__version__"]
 
 

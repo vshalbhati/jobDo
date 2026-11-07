@@ -26,7 +26,7 @@ window.LEA = window.LEA || {};
   // application - so the Apply button still needs pressing.
   const APPLICANT_FIELD = /e-?mail|phone|mobile|first.?name|last.?name|full.?name|resume|r[ée]sum[ée]|\bcv\b/i;
   const NOT_APPLICATION = /search|filter|alert|newsletter|subscribe/i;
-  const DONE_TEXT = /thank you|thanks for (applying|your)|application (for .{1,80}? )?(has been |was )?(received|submitted|sent|complete)|successfully (applied|submitted)|we(’|')?ll be in touch|we have received your|\bcongratulations\b/i;
+  const DONE_TEXT = /thank you|thanks for (applying|your)|application (for .{1,80}? )?(has been |was )?(received|submitted|sent|complete)|successfully (applied|submitted)|we(’|')?ll be in touch|we have received your|\bcongratulations\b|you(’|')?ve applied|you have (successfully )?applied|applied successfully|submission (received|successful|complete)|received your (application|submission|resume)|response has been recorded|application is (complete|on its way|in\b)/i;
   const DONE_TEXT_ALL = new RegExp(DONE_TEXT.source, 'gi');
 
   // ------------------------------------------------------------- discovery
@@ -608,10 +608,23 @@ window.LEA = window.LEA || {};
     return ((document.body.innerText || document.body.textContent || '').match(DONE_TEXT_ALL) || []).length;
   }
 
-  async function confirmed(beforeUrl, baseline = 0) {
+  // A form that closes after Submit with no complaint on the page is how
+  // most single-page careers sites take an application: the form is swapped
+  // for a short "done" view that may say nothing recognisable. Closed means
+  // gone from the page, or hidden, for a few seconds running.
+  const CLOSED_FOR_MS = 3000;
+
+  async function confirmed(beforeUrl, baseline = 0, form = null) {
+    let closedSince = 0;
     const hit = await waitFor(() => {
       if (doneCount() > baseline) return 'message';
       if (location.href !== beforeUrl && /thank|success|confirm|complete|submitted/i.test(location.href)) return 'url';
+      if (form && (!form.isConnected || !visible(form)) && !visibleErrors().length) {
+        closedSince = closedSince || Date.now();
+        if (Date.now() - closedSince >= CLOSED_FOR_MS) return 'the form closing';
+      } else {
+        closedSince = 0;
+      }
       return null;
     }, { timeout: 25000, interval: 700 });
     return hit;
@@ -720,7 +733,7 @@ window.LEA = window.LEA || {};
     if (opts.submitting) await opts.submitting();
     await clickEl(submit);
 
-    const how = await confirmed(before, baseline);
+    const how = await confirmed(before, baseline, form);
     if (!how) {
       const errs = visibleErrors();
       return {

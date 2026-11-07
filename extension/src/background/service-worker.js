@@ -8,6 +8,7 @@ import {
   fetchQueue, finishQueueItem
 } from '../shared/sync.js';
 import { isDue, scheduledAt } from '../shared/schedule.js';
+import { describeSkips } from '../shared/skips.js';
 
 const CONTENT_FILES = [
   'src/content/selectors.js',
@@ -180,8 +181,14 @@ function enabledSites(cfg) {
 // Everything a board needs to start from scratch: scan its results, rank
 // them, then apply best-first.
 const FRESH_BOARD = {
-  page: 0, queue: [], stage: 'scan', pending: [], scored: [], ranked: [], scanDone: false
+  page: 0, queue: [], stage: 'scan', pending: [], scored: [], ranked: [], scanDone: false,
+  round: 1, exhausted: false
 };
+
+// Batches of postings a board may read in one run. Each batch is about three
+// times what the board can still apply to; when few of them go through, the
+// next batch goes after what is left of the board's limit.
+const MAX_ROUNDS = 3;
 
 async function startRun({ scheduled = false } = {}) {
   let cfg = await getConfig();
@@ -222,7 +229,7 @@ async function startRun({ scheduled = false } = {}) {
   const tabId = await ensureTab(null, SITES[boards[0] || 'linkedin']);
   stopRequested = false;
   await setRun({
-    active: true, paused: false, applied: 0, seen: 0, skipped: 0, failed: 0,
+    active: true, paused: false, applied: 0, seen: 0, skipped: 0, failed: 0, needsYou: 0,
     startedAt: Date.now(), phase: 'starting', current: null, tabId,
     portalApplied: 0, searchUrl: '', sites, siteId: sites[0], perSite: {},
     scheduled, threshold: null, rankMode: '', warnedLocal: false,
@@ -323,7 +330,7 @@ async function runLoop() {
 
       if (run.stage === 'apply') {
         const more = await applyNext(cfg, run, tabId, site);
-        if (!more) await nextSite(run);
+        if (!more) await boardFinished(cfg, site, siteCfg);
       } else {
         await scanStep(cfg, run, tabId, site, siteCfg);
       }
@@ -341,14 +348,48 @@ async function runLoop() {
     if (run.active) {
       await setRun({ active: false, phase: 'finished' });
       await setConfig({ enabled: false });
-      log('info', 'Run finished. Applied ' + run.applied + ', skipped ' + run.skipped + ', failed ' + run.failed + '.');
+      log('info', 'Run finished. Applied ' + run.applied + ', handed to you ' + (run.needsYou || 0) +
+        ', failed ' + run.failed + ', skipped ' + run.skipped + '.');
+      await logSkips(run);
     }
     await reportRun();
   }
 }
 
+// Where the skipped jobs went, and the setting to change when one reason
+// dominates: "skipped" alone says nothing about what to do next.
+async function logSkips(run) {
+  const history = await getHistory();
+  const reasons = Object.values(history)
+    .filter((r) => r.status === 'skipped' && r.at >= run.startedAt)
+    .map((r) => r.reason);
+  if (!reasons.length) return;
+  const { text, tip } = describeSkips(reasons);
+  log('info', 'Skipped ' + reasons.length + ': ' + text + '.');
+  if (tip) log('info', 'Tip: ' + tip);
+}
+
 // Job ids are only unique within a board, so history is keyed by both.
 const historyKey = (job, siteId) => (job.site || siteId || 'linkedin') + ':' + job.jobId;
+
+// A board's batch is used up. If the board can still take applications this
+// run and has pages left, read another batch rather than move on: a batch of
+// 60 that got 4 applications through leaves 16 of a limit of 20 unused.
+async function boardFinished(cfg, site, siteCfg) {
+  const run = await getRun();
+  const doneHere = (run.perSite && run.perSite[run.siteId]) || 0;
+  const room = Math.min((siteCfg.maxPerRun || 10) - doneHere, cfg.safety.maxPerRun - run.applied);
+  const round = run.round || 1;
+  if (room > 0 && !run.exhausted && round < MAX_ROUNDS && run.page <= MAX_PAGES && !stopRequested) {
+    log('info', site.name + ': ' + doneHere + ' applied so far, room for ' + room + ' more. ' +
+      'Reading another batch (' + (round + 1) + ' of ' + MAX_ROUNDS + ').');
+    // The queue is kept: cards from the current results page not yet read.
+    await setRun({ stage: 'scan', scanDone: false, pending: [], scored: [], ranked: [], round: round + 1 });
+    return;
+  }
+  if (room > 0 && run.exhausted) log('info', site.name + ': no more postings to read for this search.');
+  await nextSite(run);
+}
 
 async function nextSite(run) {
   const remaining = (run.sites || []).filter((s) => s !== run.siteId);
@@ -391,12 +432,13 @@ async function scanStep(cfg, run, tabId, site, siteCfg) {
   }
   if (run.page > MAX_PAGES) {
     log('info', site.name + ': walked ' + MAX_PAGES + ' pages.');
-    await setRun({ scanDone: true });
+    await setRun({ scanDone: true, exhausted: true });
     return;
   }
   if (!run.queue || !run.queue.length) {
     const filled = await fillQueue(cfg, run, tabId, site);
-    if (!filled) await setRun({ scanDone: true });
+    // No more results (or none that would load): no further batches either.
+    if (!filled) await setRun({ scanDone: true, exhausted: true });
     return;
   }
 
@@ -595,7 +637,8 @@ async function recordOutcome(job, outcome, label) {
   const run = await getRun();
   const counts = {
     applied: run.applied + (outcome.status === 'applied' ? 1 : 0),
-    skipped: run.skipped + (['skipped', 'dry_run', 'needs_manual'].includes(outcome.status) ? 1 : 0),
+    skipped: run.skipped + (['skipped', 'dry_run'].includes(outcome.status) ? 1 : 0),
+    needsYou: (run.needsYou || 0) + (outcome.status === 'needs_manual' ? 1 : 0),
     failed: run.failed + (outcome.status === 'failed' ? 1 : 0)
   };
   const perSite = { ...(run.perSite || {}) };

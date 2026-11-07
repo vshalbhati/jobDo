@@ -612,6 +612,22 @@ section('run reports by email');
     startedAt, endedAt, tz: 'UTC', ending: 'done'
   });
   ok('a dry run says so', dry.subject === 'jobDo dry run: 2 jobs ready to send' && dry.html.includes('Ready to send'), dry.subject);
+
+  const skips = runReport({
+    records: [
+      ...Array.from({ length: 5 }, (_, i) => ({ title: 'P' + i, status: 'skipped', site: 'naukri', reason: 'applies on the company site (portal mode is off)' })),
+      { title: 'R1', status: 'skipped', site: 'linkedin', reason: 'ranked 41 skip: 2/6 key skills' },
+      { title: 'R2', status: 'skipped', site: 'linkedin', reason: 'ranked 22 skip: a different line of work' },
+      { title: 'A1', status: 'skipped', site: 'linkedin', reason: 'already applied' },
+      { title: 'X1', status: 'skipped', site: 'linkedin', reason: 'something new' },
+      { title: 'OK', status: 'applied', site: 'linkedin', reason: 'submitted' }
+    ],
+    startedAt, endedAt, tz: 'UTC', ending: 'done'
+  });
+  ok('skipped jobs are broken down by why, biggest group first',
+    skips.html.includes('9 jobs were skipped: 5 on company sites, which are switched off, 2 below your match bar, 1 already applied to, 1 for other reasons.') &&
+    skips.text.includes('9 jobs were skipped: 5 on company sites'), skips.text.split('\n').slice(0, 6));
+  ok('  with the setting to change when one reason dominates', skips.html.includes('Switch on company sites in Settings'), null);
 }
 
 section('your job list (links applied to before the job boards)');

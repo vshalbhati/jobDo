@@ -109,6 +109,23 @@ class PostingParser(unittest.TestCase):
         info = parse_job("Engineer", "Requirements\n- Police clearance certificate at joining.")
         self.assertFalse(info.needs_clearance)
 
+    def test_ways_of_working_are_not_key_skills(self):
+        # Two real postings were skipped for "0/2 key skills (missing
+        # stakeholder management)": code review and stakeholder management
+        # were the only skills found in them.
+        info = parse_job("Full Stack Developer", "Requirements\n- Strong stakeholder management.\n"
+                         "- Participate in code reviews.\n- Agile/Scrum and Jira.\n- React and Node.js.")
+        self.assertEqual(set(info.required), {"react", "node.js"})
+        self.assertFalse({"stakeholder management", "code review", "agile", "jira"} & set(info.preferred))
+
+    def test_stated_years_temper_a_senior_title(self):
+        senior = parse_job("Senior Developer", "Requirements\n- 6+ years of experience in Java.")
+        self.assertEqual(senior.level, 3)
+        mid = parse_job("Senior Developer", "Requirements\n- 2-4 years of experience in Java.")
+        self.assertEqual(mid.level, 2)
+        lead = parse_job("Lead Engineer", "Requirements\n- 1+ years of experience in Java.")
+        self.assertEqual(lead.level, 3)   # one level down at most
+
 
 class Specialties(unittest.TestCase):
     def test_a_product_the_taxonomy_does_not_know_is_found(self):

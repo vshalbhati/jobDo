@@ -16,6 +16,37 @@ const ENDINGS = {
   errors: 'stopped after repeated errors'
 };
 
+// Why jobs were skipped, grouped with the setting behind each group. The
+// extension groups the same way (extension/src/shared/skips.js).
+const SKIP_KINDS = [
+  { id: 'portalOff', test: /portal mode is off/i, label: 'on company sites, which are switched off', fix: 'Switch on company sites in Settings → 6. Company sites to apply to these.' },
+  { id: 'below', test: /^ranked \d+/i, label: 'below your match bar', fix: 'Lower the match bar in Settings → 4. Matching & ranking to apply to more of these.' },
+  { id: 'portalBudget', test: /company-portal budget/i, label: 'over the company-site limit for one run', fix: 'Raise "max per run" in Settings → 6. Company sites.' },
+  { id: 'filters', test: /^(title excluded|title missing all of|company blocklisted|description excluded)/i, label: 'ruled out by your filters', fix: 'Check the title, company and description lists in Settings → 4. Matching & ranking.' },
+  { id: 'already', test: /already applied/i, label: 'already applied to' },
+  { id: 'noButton', test: /no easy apply button|no indeed apply button|only applies on the company site/i, label: 'with no quick-apply button' },
+  { id: 'level', test: /^entry-level posting/i, label: 'internships or trainee roles' },
+  { id: 'noText', test: /description did not load/i, label: 'whose description did not load' },
+  { id: 'you', test: /you skipped it/i, label: 'skipped by you' },
+  { id: 'noStart', test: /could not start the application/i, label: 'that would not start' }
+];
+
+export function skipSummary(reasons) {
+  const counts = new Map();
+  for (const reason of reasons) {
+    const kind = SKIP_KINDS.find((k) => k.test.test(String(reason || ''))) || { id: 'other', label: 'for other reasons' };
+    const c = counts.get(kind.id) || { label: kind.label, fix: kind.fix || '', n: 0 };
+    c.n++;
+    counts.set(kind.id, c);
+  }
+  const groups = [...counts.values()].sort((a, b) => b.n - a.n);
+  if (!groups.length) return '';
+  const top = groups[0];
+  return reasons.length + (reasons.length === 1 ? ' job was' : ' jobs were') + ' skipped: ' +
+    groups.map((g) => g.n + ' ' + g.label).join(', ') + '.' +
+    (top.fix && top.n >= Math.max(2, reasons.length / 3) ? ' ' + top.fix : '');
+}
+
 const C = {
   page: '#f3f3f0', surface: '#ffffff', inset: '#f8f8f6', line: '#e8e7e1',
   text: '#0b0b0b', secondary: '#52514e', muted: '#898781', accent: '#2a78d6',
@@ -72,9 +103,9 @@ export function runReport({ records, startedAt, endedAt, tz, ending }) {
     subject,
     counts,
     html: page(headline, when, tiles, sections,
-      skipped.length ? plural(skipped.length, 'job was', 'jobs were') + ' skipped: below your match threshold, already applied, or not a fit for the filters you set.' : '',
+      skipSummary(skipped.map((r) => r.reason)),
       'You get this email when a run ends. Switch it off in Settings → Daily run, safety and pacing.'),
-    text: textVersion(headline, when, sections, counts)
+    text: textVersion(headline, when, sections, counts, skipSummary(skipped.map((r) => r.reason)))
   };
 }
 
@@ -178,10 +209,11 @@ function jobRow(r, withReason) {
 
 // --------------------------------------------------------------------- text
 
-function textVersion(headline, when, sections, counts) {
+function textVersion(headline, when, sections, counts, skips) {
   const out = [headline, when, '',
     'Applied ' + counts.applied + (counts.dryRun ? ' · ready to send ' + counts.dryRun : '') +
     ' · waiting on you ' + counts.needsYou + ' · did not go through ' + counts.failed + ' · skipped ' + counts.skipped, ''];
+  if (skips) out.push(skips, '');
   for (const s of sections) {
     out.push(s.title.toUpperCase() + ' (' + s.rows.length + ')');
     if (s.note) out.push(s.note);

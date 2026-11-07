@@ -386,6 +386,16 @@ def family_of(name):
     return s.family if s else None
 
 
+# Ways of working rather than things you build with. Every posting asks for
+# code reviews, agile and "stakeholder management", and few resumes spell them
+# out, so a posting naming them is not scored on them (jd.parse_job).
+SOFT_FAMILIES = frozenset({"engineering-practice", "process", "pm-tools", "business-soft", "leadership"})
+
+
+def is_soft(name):
+    return family_of(name) in SOFT_FAMILIES
+
+
 def related(a, b):
     """0..1: how much knowing skill a counts toward a posting asking for b."""
     if a == b:

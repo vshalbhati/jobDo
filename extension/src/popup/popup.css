@@ -71,6 +71,7 @@ button.mini.ghosty:hover { color: var(--text-primary); background: var(--hover);
 /* Colour on the counts that carry a state, and the word under each. */
 .count.applied b { color: var(--status-good); }
 .count.failed b { color: var(--status-critical); }
+.count.you b { color: #b77c00; }
 .today { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
 .today .ic { width: 13px; height: 13px; flex: none; margin-top: 2px; }
 
