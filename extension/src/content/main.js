@@ -32,7 +32,10 @@ window.LEA = window.LEA || {};
         site: s ? s.id : null,
         // "ready" means this board's results list has rendered, which is what
         // the service worker waits for after navigating.
-        ready: !!(s && document.querySelector(readySelector(s)))
+        // An empty search or a sign-in page is as ready as it will get:
+        // waiting longer for cards that will never come only wastes time.
+        ready: !!(s && (document.querySelector(readySelector(s)) ||
+          (s.id === 'linkedin' && LEA.scrape && LEA.scrape.emptyReason())))
       };
     },
 

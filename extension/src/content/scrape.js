@@ -51,9 +51,35 @@ window.LEA = window.LEA || {};
     };
   }
 
+  // Why a results page shows no job cards: the search found nothing, LinkedIn
+  // is not signed in, or it wants a security check. '' when none of these,
+  // which leaves a page LinkedIn has redesigned.
+  const NO_RESULTS = /no matching jobs found|we couldn[’']?t find (a match|any jobs)|no (jobs|results) found/i;
+  function emptyReason() {
+    const path = location.pathname;
+    if (/^\/(checkpoint|challenge)\b/.test(path) || /security (check|verification)/i.test(document.title)) return 'checkpoint';
+    if (/^\/(authwall|login|uas\/login|signup|signin)\b/.test(path) || q(SEL.signedOut)) return 'signedOut';
+    const main = document.querySelector('main') || document.body;
+    if (q(SEL.noResults) || NO_RESULTS.test((main.innerText || '').slice(0, 20000))) return 'noResults';
+    return '';
+  }
+
   async function collectJobs() {
     const anyCard = q(SEL.jobCard);
-    if (!anyCard) return { jobs: [], hasNext: false, error: 'no job cards on page' };
+    if (!anyCard) {
+      const why = emptyReason();
+      if (why === 'noResults') return { jobs: [], hasNext: false, noResults: true };
+      if (why === 'signedOut') {
+        return { jobs: [], hasNext: false, error: 'LinkedIn is not signed in in this Chrome. Sign in on linkedin.com, then start the run again' };
+      }
+      if (why === 'checkpoint') {
+        return { jobs: [], hasNext: false, error: 'LinkedIn is asking for a security check. Complete it in the LinkedIn tab, then start the run again' };
+      }
+      return {
+        jobs: [], hasNext: false,
+        error: 'no job cards on the page "' + document.title.slice(0, 80) + '" - LinkedIn may have changed its page layout'
+      };
+    }
 
     await scrollThrough(scrollParent(anyCard), 14);
 
@@ -148,6 +174,6 @@ window.LEA = window.LEA || {};
 
   LEA.scrape = {
     collectJobs, openJob, easyApplyButton, externalApplyButton, applyButtonKind,
-    goToNextPage, currentJobIdFromUrl, jobIdOf
+    goToNextPage, currentJobIdFromUrl, jobIdOf, emptyReason
   };
 })(window.LEA);

@@ -43,6 +43,18 @@ window.LEA.SEL = {
     '.job-card-list__footer-wrapper',
     '.job-card-container__footer-item'
   ],
+  // A search that found nothing.
+  noResults: [
+    '.jobs-search-no-results-banner',
+    '.jobs-search-two-pane__no-results-banner--expand',
+    '.jobs-search-results-list__no-results'
+  ],
+  // The public, signed-out version of the jobs pages.
+  signedOut: [
+    '.base-search-card',
+    '.authwall-join-form',
+    'a.nav__button-secondary[href*="login"]'
+  ],
   paginationNext: [
     'button[aria-label="View next page"]',
     '.jobs-search-pagination__button--next',

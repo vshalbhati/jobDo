@@ -182,7 +182,7 @@ function enabledSites(cfg) {
 // them, then apply best-first.
 const FRESH_BOARD = {
   page: 0, queue: [], stage: 'scan', pending: [], scored: [], ranked: [], scanDone: false,
-  round: 1, exhausted: false
+  round: 1, exhausted: false, lastPage: false
 };
 
 // Batches of postings a board may read in one run. Each batch is about three
@@ -380,14 +380,15 @@ async function boardFinished(cfg, site, siteCfg) {
   const doneHere = (run.perSite && run.perSite[run.siteId]) || 0;
   const room = Math.min((siteCfg.maxPerRun || 10) - doneHere, cfg.safety.maxPerRun - run.applied);
   const round = run.round || 1;
-  if (room > 0 && !run.exhausted && round < MAX_ROUNDS && run.page <= MAX_PAGES && !stopRequested) {
+  const exhausted = run.exhausted || (run.lastPage && !(run.queue || []).length);
+  if (room > 0 && !exhausted && round < MAX_ROUNDS && run.page <= MAX_PAGES && !stopRequested) {
     log('info', site.name + ': ' + doneHere + ' applied so far, room for ' + room + ' more. ' +
       'Reading another batch (' + (round + 1) + ' of ' + MAX_ROUNDS + ').');
     // The queue is kept: cards from the current results page not yet read.
     await setRun({ stage: 'scan', scanDone: false, pending: [], scored: [], ranked: [], round: round + 1 });
     return;
   }
-  if (room > 0 && run.exhausted) log('info', site.name + ': no more postings to read for this search.');
+  if (room > 0 && exhausted) log('info', site.name + ': no more postings to read for this search.');
   await nextSite(run);
 }
 
@@ -436,6 +437,10 @@ async function scanStep(cfg, run, tabId, site, siteCfg) {
     return;
   }
   if (!run.queue || !run.queue.length) {
+    if (run.lastPage) {
+      await setRun({ scanDone: true, exhausted: true });
+      return;
+    }
     const filled = await fillQueue(cfg, run, tabId, site);
     // No more results (or none that would load): no further batches either.
     if (!filled) await setRun({ scanDone: true, exhausted: true });
@@ -503,6 +508,13 @@ async function fillQueue(cfg, run, tabId, site) {
 
   await navigate(tabId, url);
   const res = await send(tabId, { type: 'COLLECT_JOBS' }, 90000);
+  if (res && res.noResults) {
+    log('info', run.page === 0
+      ? site.name + ': the search found no jobs (' + searchSummary(cfg, run, keywords, quickOnly) + '). ' +
+        'Broader keywords or a longer "Date posted" in Settings → 3. Search find more.'
+      : site.name + ': no more results for this search.');
+    return false;
+  }
   if (!res || res.error) {
     log('error', site.name + ': could not read the results list - ' + (res && res.error));
     return false;
@@ -527,9 +539,22 @@ async function fillQueue(cfg, run, tabId, site) {
   queue.sort((a, b) => b.score - a.score);
   log('info', site.name + ': ' + res.jobs.length + ' jobs on page, ' + queue.length + ' worth reading.');
 
-  await setRun({ queue, page: run.page + 1, searchUrl: url });
+  // A short page with no Next button is the last one; loading the page after
+  // it only finds an empty list.
+  const lastPage = !res.hasNext && res.jobs.length < site.perPage;
+  await setRun({ queue, page: run.page + 1, searchUrl: url, lastPage });
   if (!queue.length && !res.hasNext) { log('info', site.name + ': no more pages.'); return false; }
   return true;
+}
+
+// "keywords "java developer", in Pune, posted in the last 24 hours, Easy Apply only"
+function searchSummary(cfg, run, keywords, quickOnly) {
+  const search = searchFor(cfg, run);
+  const days = { r86400: 'the last 24 hours', r604800: 'the last week', r2592000: 'the last month' }[search.datePosted];
+  return ['keywords "' + keywords + '"',
+    search.location ? 'in ' + search.location : '',
+    days ? 'posted in ' + days : '',
+    quickOnly ? 'Easy Apply only' : ''].filter(Boolean).join(', ');
 }
 
 // ------------------------------------------------------------------- ranking
