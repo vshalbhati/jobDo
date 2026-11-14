@@ -34,8 +34,9 @@ window.LEA = window.LEA || {};
         // the service worker waits for after navigating.
         // An empty search or a sign-in page is as ready as it will get:
         // waiting longer for cards that will never come only wastes time.
-        ready: !!(s && (document.querySelector(readySelector(s)) ||
-          (s.id === 'linkedin' && LEA.scrape && LEA.scrape.emptyReason())))
+        ready: !!(s && (s.id === 'linkedin'
+          ? LEA.scrape.hasCards() || LEA.scrape.emptyReason()
+          : document.querySelector(readySelector(s))))
       };
     },
 
@@ -92,7 +93,6 @@ window.LEA = window.LEA || {};
   // The one remaining per-site detail out here: what "the list has rendered"
   // looks like. Each adapter's first card selector answers it.
   function readySelector(s) {
-    if (s.id === 'linkedin') return LEA.SEL.jobCard.join(',');
     return (s.SEL && s.SEL.card ? s.SEL.card : ['body']).join(',');
   }
 

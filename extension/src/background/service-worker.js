@@ -232,7 +232,7 @@ async function startRun({ scheduled = false } = {}) {
     active: true, paused: false, applied: 0, seen: 0, skipped: 0, failed: 0, needsYou: 0,
     startedAt: Date.now(), phase: 'starting', current: null, tabId,
     portalApplied: 0, searchUrl: '', sites, siteId: sites[0], perSite: {},
-    scheduled, threshold: null, rankMode: '', warnedLocal: false,
+    scheduled, threshold: null, rankMode: '', warnedLocal: false, warnedLayout: false,
     ending: '', reportSent: false, list,
     ...FRESH_BOARD
   });
@@ -520,6 +520,11 @@ async function fillQueue(cfg, run, tabId, site) {
     return false;
   }
   if (!res.jobs.length) { log('info', site.name + ': no jobs on this page.'); return false; }
+  if (res.byLinks && !run.warnedLayout) {
+    log('warn', site.name + ' has changed its page layout; finding jobs by their links instead. ' +
+      'If titles or companies look wrong in the dashboard, the extension needs updating for the new layout.');
+    await setRun({ warnedLayout: true });
+  }
 
   const history = await getHistory();
   const queue = [];

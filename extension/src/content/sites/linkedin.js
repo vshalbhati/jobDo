@@ -16,6 +16,7 @@ window.LEA = window.LEA || {};
         jobs: res.jobs.map((j) => ({ ...j, quickApply: j.easyApply, site: 'linkedin' })),
         hasNext: res.hasNext,
         noResults: !!res.noResults,
+        byLinks: !!res.byLinks,
         error: res.error
       };
     },
