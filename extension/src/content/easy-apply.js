@@ -14,9 +14,51 @@ window.LEA = window.LEA || {};
 
   // ---------------------------------------------------------------- widgets
 
+  // The Easy Apply form. By its known class names when they match; otherwise
+  // (the newer layout, which may draw it inside a shadow root) any open
+  // dialog headed "Apply to <company>".
+  const DIALOG = '[role="dialog"], dialog[open], [aria-modal="true"]';
+  const APPLY_HEADING = /^apply to\b|\beasy apply\b/i;
+  const ours = (el) => !!el.closest('[id^="lea-"]');
+
   function modalRoot() {
     const m = q(SEL.modal);
-    return m && visible(m) ? m : null;
+    if (m && visible(m)) return m;
+    for (const d of qa(DIALOG)) {
+      if (ours(d) || !visible(d)) continue;
+      const head = text(d.querySelector('h1, h2, h3, header')) || text(d).slice(0, 80);
+      if (APPLY_HEADING.test(head)) return d;
+    }
+    return null;
+  }
+
+  // What dialogs the page showed when the form could not be found, for the
+  // log: tells a dialog the extension misread from one that never appeared.
+  function dialogReport() {
+    const found = qa(DIALOG).filter((d) => !ours(d));
+    const each = found.slice(0, 3).map((d) => (d.getRootNode() !== document ? 'in a shadow root ' : '') +
+      (visible(d) ? '' : 'hidden ') + '"' + text(d).slice(0, 40) + '"');
+    return 'dialogs on the page: ' + (each.join(', ') || 'none') + '; frames: ' + document.querySelectorAll('iframe').length;
+  }
+
+  // The form's questions. By the known class names, or else: each fieldset,
+  // and around every other control the largest box holding no other
+  // question's controls (radios sharing a name count as one question).
+  const CONTROL = 'input:not([type="hidden"]):not([type="file"]), select, textarea';
+  function formGroups(modal) {
+    const known = qa(SEL.formGroup, modal);
+    if (known.length) return known;
+    const groups = [];
+    for (const c of modal.querySelectorAll(CONTROL)) {
+      let g = c.closest('fieldset');
+      if (!g || !modal.contains(g)) {
+        const alone = (box) => Array.from(box.querySelectorAll(CONTROL)).every((x) => x === c || (c.name && x.name === c.name));
+        g = c;
+        while (g.parentElement && g.parentElement !== modal && alone(g.parentElement)) g = g.parentElement;
+      }
+      if (!groups.includes(g)) groups.push(g);
+    }
+    return groups;
   }
 
   function optionsOfSelect(sel) {
@@ -95,7 +137,7 @@ window.LEA = window.LEA || {};
       const target = w.radios.find((r) => r.value === ans.value)
         || w.radios.find((r) => LEA.answers.norm(labelOf(r)) === LEA.answers.norm(ans.optionLabel));
       if (!target) return false;
-      const lab = target.id ? document.querySelector('label[for="' + CSS.escape(target.id) + '"]') : null;
+      const lab = D.labelFor(target);
       await clickEl(lab && visible(lab) ? lab : target);
       if (!target.checked) { target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
       return true;
@@ -125,7 +167,7 @@ window.LEA = window.LEA || {};
     const modal = modalRoot();
     if (!modal) return { unknowns: [], filled: 0 };
 
-    const groups = qa(SEL.formGroup, modal);
+    const groups = formGroups(modal);
     const unknowns = [];
     let filled = 0;
 
@@ -178,7 +220,7 @@ window.LEA = window.LEA || {};
   const RESUME_WORD = /resume|r[ée]sum[ée]|\bcv\b/i;
 
   function labelText(el) {
-    return el.id ? text(document.querySelector('label[for="' + CSS.escape(el.id) + '"]')) : '';
+    return text(D.labelFor(el));
   }
 
   // The résumé's file input, never the cover letter's: on LinkedIn both are
@@ -217,7 +259,7 @@ window.LEA = window.LEA || {};
   async function selectCard(card) {
     if (isSelected(card)) return true;
     const r = card.radio;
-    const label = r && r.id ? document.querySelector('label[for="' + CSS.escape(r.id) + '"]') : null;
+    const label = r ? D.labelFor(r) : null;
     await clickEl(label && visible(label) ? label : card.el);
     if (r && !r.checked) {
       r.checked = true;
@@ -291,7 +333,7 @@ window.LEA = window.LEA || {};
   }
 
   async function unfollowCompany() {
-    const cb = q(SEL.followCompany);
+    const cb = q(SEL.followCompany, modalRoot() || undefined);
     if (cb && cb.checked && visible(cb)) await clickEl(cb);
   }
 
@@ -302,7 +344,7 @@ window.LEA = window.LEA || {};
     if (!modal) return 'none';
     const meter = q(SEL.progressMeter, modal);
     const pct = meter ? (meter.getAttribute('aria-valuenow') || meter.value || '') : '';
-    const labels = qa(SEL.formGroup, modal).map((g) => text(g).slice(0, 40)).join('|');
+    const labels = formGroups(modal).map((g) => text(g).slice(0, 40)).join('|');
     return pct + '::' + text(q('h3, h2', modal)).slice(0, 60) + '::' + labels.slice(0, 400);
   }
 
@@ -378,7 +420,7 @@ window.LEA = window.LEA || {};
 
     await clickEl(btn);
     const modal = await waitFor(() => modalRoot(), { timeout: 12000 });
-    if (!modal) return { status: 'failed', reason: 'Easy Apply modal never opened' };
+    if (!modal) return { status: 'failed', reason: 'Easy Apply modal never opened (' + dialogReport() + ')' };
     report('modal', 'opened');
 
     let repeats = 0;

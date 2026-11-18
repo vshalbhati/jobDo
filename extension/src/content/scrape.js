@@ -232,11 +232,27 @@ window.LEA = window.LEA || {};
     // taken for this one when two jobs share a title.
     const before = descNow();
     const wasShowing = paneShows(true);
+    let clicked = 'no card';
+    // What the page showed when the job would not open, for the log: enough
+    // to tell a click that did nothing from a pane the extension misread.
+    const paneReport = () => {
+      const desc = descriptionEl();
+      const head = desc ? blockText(paneAround(desc, card)).replace(/\s+/g, ' ').slice(0, 70) : '';
+      return [
+        'clicked ' + clicked,
+        'address job ' + (idBefore || 'none') + ' -> ' + (currentJobIdFromUrl() || 'none') + (currentJobIdFromUrl() === job.jobId ? ' (this job)' : ''),
+        desc ? (q(SEL.detailsDescription) ? 'description found' : 'description found by its heading') : 'no description on the page',
+        desc ? (descNow() === before ? 'pane unchanged' : 'pane changed') : '',
+        head ? 'pane starts "' + head + '"' : ''
+      ].filter(Boolean).join('; ');
+    };
     if (card) {
       // The card's own link, or its clickable area; never its Dismiss or Save
       // buttons, which are real <button>s.
       const link = q(SEL.cardTitle, card) ||
         card.querySelector('a[href*="/jobs/view/"], a[href*="currentJobId="], [role="link"], [role="button"]:not(button)') || card;
+      clicked = link.tagName.toLowerCase() + (link.getAttribute('role') ? '[' + link.getAttribute('role') + ']' : '') +
+        (link === card ? ' (whole card)' : '');
       await clickEl(link);
     } else if (currentJobIdFromUrl() !== job.jobId) {
       // Reopening a job found earlier in the run: the page was loaded with
@@ -256,7 +272,7 @@ window.LEA = window.LEA || {};
       return currentJobIdFromUrl() === job.jobId && idBefore !== job.jobId;
     };
     const loaded = await waitFor(() => (showing() && descriptionEl() ? true : null), { timeout: 15000 });
-    if (!loaded) return { ok: false, reason: 'details pane did not load' };
+    if (!loaded) return { ok: false, reason: 'details pane did not load (' + paneReport() + ')' };
 
     // "See more" so the description text is complete before we score it.
     const more = q(SEL.seeMore) || LEA.dom.findButton([/^(…\s*)?(see|show) more$/i], descriptionEl());

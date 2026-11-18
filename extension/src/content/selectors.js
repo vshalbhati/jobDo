@@ -109,12 +109,16 @@ window.LEA.SEL = {
   progressMeter: [
     '.artdeco-completeness-meter-linear__progress-element',
     'progress.artdeco-completeness-meter-linear__progress-element',
-    'div[role="progressbar"]'
+    'div[role="progressbar"]',
+    'progress',
+    '[role="progressbar"]'
   ],
   dismiss: [
     'button[aria-label="Dismiss"]',
     '.artdeco-modal__dismiss',
-    'button[data-test-modal-close-btn]'
+    'button[data-test-modal-close-btn]',
+    'button[aria-label^="Dismiss" i]',
+    'button[aria-label^="Close" i]'
   ],
   discardConfirm: [
     'button[data-control-name="discard_application_confirm_btn"]',
@@ -131,7 +135,8 @@ window.LEA.SEL = {
   fieldError: [
     '.artdeco-inline-feedback--error',
     '.fb-dash-form-element__error-field',
-    '[data-test-form-element-error-messages]'
+    '[data-test-form-element-error-messages]',
+    '[role="alert"]'
   ],
   followCompany: [
     '#follow-company-checkbox',

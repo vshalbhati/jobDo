@@ -14,22 +14,55 @@ window.LEA = window.LEA || {};
     return sleep(rand(s.actionMinMs ?? 500, s.actionMaxMs ?? 1600));
   }
 
+  // The page's open shadow roots. LinkedIn's newer pages draw some dialogs -
+  // the Easy Apply form among them - inside one, where document.querySelector
+  // cannot see. Listed at most once a second: walking the page is not free.
+  let shadowCache = { at: 0, roots: [] };
+  function shadowRoots() {
+    if (Date.now() - shadowCache.at < 1000) return shadowCache.roots.filter((r) => r.host.isConnected);
+    const roots = [];
+    const walk = (root) => {
+      for (const el of root.querySelectorAll('*')) {
+        // jobDo's own panels (ids "lea-...") are shadow roots too; their
+        // Submit button must never be taken for the page's.
+        if (el.shadowRoot && !/^lea-/.test(el.id)) { roots.push(el.shadowRoot); walk(el.shadowRoot); }
+      }
+    };
+    walk(document);
+    shadowCache = { at: Date.now(), roots };
+    return roots;
+  }
+
+  // Where a lookup with no root searches: the page, then its shadow roots.
+  const scopes = (root) => (root ? [root] : [document, ...shadowRoots()]);
+
   function q(sels, root) {
-    const scope = root || document;
     for (const s of [].concat(sels)) {
-      const el = scope.querySelector(s);
-      if (el) return el;
+      for (const scope of scopes(root)) {
+        const el = scope.querySelector(s);
+        if (el) return el;
+      }
     }
     return null;
   }
 
   function qa(sels, root) {
-    const scope = root || document;
     for (const s of [].concat(sels)) {
-      const els = Array.from(scope.querySelectorAll(s));
+      const els = scopes(root).flatMap((scope) => Array.from(scope.querySelectorAll(s)));
       if (els.length) return els;
     }
     return [];
+  }
+
+  // The document or shadow root an element lives in, for lookups by id
+  // (label[for], aria-labelledby) that must stay inside it.
+  const rootOf = (el) => {
+    const r = el && el.getRootNode && el.getRootNode();
+    return r && r.querySelector ? r : document;
+  };
+
+  function labelFor(el) {
+    return el && el.id ? rootOf(el).querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
   }
 
   function visible(el) {
@@ -146,8 +179,7 @@ window.LEA = window.LEA || {};
 
   // Finds a <button> whose visible text or aria-label matches any pattern.
   function findButton(patterns, root) {
-    const scope = root || document;
-    const buttons = Array.from(scope.querySelectorAll('button, a[role="button"]'));
+    const buttons = scopes(root).flatMap((scope) => Array.from(scope.querySelectorAll('button, a[role="button"]')));
     for (const re of [].concat(patterns)) {
       for (const b of buttons) {
         if (!visible(b)) continue;
@@ -172,16 +204,15 @@ window.LEA = window.LEA || {};
 
   function labelOf(el, group) {
     if (!el) return '';
-    if (el.id) {
-      const lab = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
-      if (lab && text(lab)) return text(lab);
-    }
+    const lab = labelFor(el);
+    if (lab && text(lab)) return text(lab);
     const aria = el.getAttribute('aria-label');
     if (aria) return aria.trim();
     const labelledBy = el.getAttribute('aria-labelledby');
     if (labelledBy) {
+      const home = rootOf(el);
       const parts = labelledBy.split(/\s+/)
-        .map((id) => document.getElementById(id)).filter(Boolean).map(text);
+        .map((id) => home.querySelector('#' + CSS.escape(id))).filter(Boolean).map(text);
       if (parts.join(' ').trim()) return parts.join(' ').trim();
     }
     const wrap = el.closest('label');
@@ -329,7 +360,7 @@ window.LEA = window.LEA || {};
   }
 
   LEA.dom = {
-    sleep, rand, humanPause, q, qa, visible, text, blockText, waitFor, waitGone,
+    sleep, rand, humanPause, q, qa, labelFor, shadowRoots, visible, text, blockText, waitFor, waitGone,
     clickEl, setValue, setSelect, findButton, scrollThrough, labelOf, isEditable,
     fileFromDataUrl, sameFileName, panel
   };
