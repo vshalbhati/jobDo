@@ -97,13 +97,18 @@ window.LEA = window.LEA || {};
     return out;
   }
 
+  // Badges LinkedIn writes into a title's text ("Java Developer (Verified
+  // job)"), which the job's own pane does not repeat.
+  const BADGE = /\s*\(\s*verified(?: job)?\s*\)|\s*\bwith verification\b/gi;
+  // LinkedIn renders the title twice (once visually hidden for screen
+  // readers), which collapses to "Title Title" - fold the repeat back.
+  const fold = (s) => (s || '').replace(BADGE, '').replace(/^(.+?)\s*\1$/, '$1').trim();
+  const norm = (s) => fold(s).toLowerCase().replace(/\s+/g, ' ');
+
   function readCard(card) {
     const jobId = jobIdOf(card);
     if (!jobId) return null;
     const titleEl = q(SEL.cardTitle, card);
-    // LinkedIn renders the title twice (once visually hidden for screen
-    // readers), which collapses to "Title Title" - fold the repeat back.
-    const fold = (s) => (s || '').replace(/^(.+?)\s*\1$/, '$1').trim();
     let title = fold(text(titleEl));
     let company = text(q(SEL.cardCompany, card));
     let location = text(q(SEL.cardLocation, card));
@@ -111,7 +116,7 @@ window.LEA = window.LEA || {};
       const link = card.querySelector('a[href*="/jobs/view/"], a[href*="currentJobId="]');
       const lines = cardLines(card);
       title = title || fold(text(link)) || fold((link && link.getAttribute('aria-label')) || '') || lines[0] || '';
-      const rest = lines.filter((l) => l !== title && !title.startsWith(l));
+      const rest = lines.filter((l) => fold(l) !== title && !title.startsWith(fold(l)));
       company = company || rest[0] || '';
       location = location || rest[1] || '';
     }
@@ -203,8 +208,30 @@ window.LEA = window.LEA || {};
     return box && box !== document.body ? box : null;
   }
 
+  // The details pane around the description: the largest box holding it that
+  // does not also hold the results list (checked by the clicked card).
+  function paneAround(desc, card) {
+    let pane = desc;
+    while (pane.parentElement && pane.parentElement !== document.body &&
+      !(card && pane.parentElement.contains(card))) pane = pane.parentElement;
+    return pane;
+  }
+
   async function openJob(job) {
     const card = findCards().find((c) => jobIdOf(c) === job.jobId);
+    const want = norm(job.title).replace(/(…|\.\.\.)$/, '').trim();
+    const idBefore = currentJobIdFromUrl();
+    const paneShows = (withCompany) => {
+      const desc = descriptionEl();
+      if (!desc || !want) return false;
+      const t = norm(blockText(paneAround(desc, card)));
+      return t.includes(want) && (!withCompany || !job.company || t.includes(norm(job.company)));
+    };
+    const descNow = () => { const d = descriptionEl(); return d ? blockText(d).slice(0, 400) : ''; };
+    // What the pane held before the click, so the last job's pane is never
+    // taken for this one when two jobs share a title.
+    const before = descNow();
+    const wasShowing = paneShows(true);
     if (card) {
       // The card's own link, or its clickable area; never its Dismiss or Save
       // buttons, which are real <button>s.
@@ -218,14 +245,15 @@ window.LEA = window.LEA || {};
       return { ok: false, reason: 'card no longer in list' };
     }
 
-    // This job's pane, not the last one's: the address names it, or, on a
-    // layout that keeps the job out of the address, the pane shows its title.
+    // This job's pane, not the last one's. Nothing counts until the pane has
+    // changed (unless it already showed this job). Then the pane - title and
+    // all, not just the description - shows the job's title, or the address
+    // has moved to this job. The address alone is not trusted either way: the
+    // new search page does not always carry the clicked job in it.
     const showing = () => {
-      const id = currentJobIdFromUrl();
-      if (id) return id === job.jobId;
-      const pane = descriptionEl();
-      const region = pane && (pane.closest('[class*="details"], section, article') || pane.parentElement);
-      return !!(region && job.title && blockText(region).includes(job.title));
+      if (!wasShowing && idBefore !== job.jobId && descNow() === before) return false;
+      if (paneShows()) return true;
+      return currentJobIdFromUrl() === job.jobId && idBefore !== job.jobId;
     };
     const loaded = await waitFor(() => (showing() && descriptionEl() ? true : null), { timeout: 15000 });
     if (!loaded) return { ok: false, reason: 'details pane did not load' };
@@ -236,7 +264,7 @@ window.LEA = window.LEA || {};
 
     return {
       ok: true,
-      title: text(q(SEL.detailsTitle)) || job.title,
+      title: text(q(SEL.detailsTitle)) || fold(job.title),
       company: text(q(SEL.detailsCompany)) || job.company,
       description: blockText(descriptionEl()),
       hasEasyApply: !!easyApplyButton()
