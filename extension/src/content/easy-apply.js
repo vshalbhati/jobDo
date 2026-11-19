@@ -21,15 +21,45 @@ window.LEA = window.LEA || {};
   const APPLY_HEADING = /^apply to\b|\beasy apply\b/i;
   const ours = (el) => !!el.closest('[id^="lea-"]');
 
+  let foundBy = '';
   function modalRoot() {
     const m = q(SEL.modal);
-    if (m && visible(m)) return m;
+    if (m && visible(m)) { foundBy = 'by class name'; return m; }
     for (const d of qa(DIALOG)) {
       if (ours(d) || !visible(d)) continue;
       const head = text(d.querySelector('h1, h2, h3, header')) || text(d).slice(0, 80);
-      if (APPLY_HEADING.test(head)) return d;
+      if (APPLY_HEADING.test(head)) { foundBy = 'by its heading'; return d; }
     }
     return null;
+  }
+
+  // The form's own Next / Review / Submit buttons. Normally inside the
+  // dialog; on some layouts its footer sits beside it, so the boxes around the
+  // dialog are searched too - but never one that also holds the job list,
+  // whose own "Next" turns the results page.
+  function formButton(patterns) {
+    const modal = modalRoot();
+    if (!modal) return null;
+    let b = D.findButton(patterns, modal);
+    let box = modal;
+    for (let i = 0; !b && i < 5 && box.parentElement && box.parentElement !== document.body; i++) {
+      box = box.parentElement;
+      if (box.querySelector('main, [data-lea-job-id], ' + SEL.jobCard.join(','))) break;
+      b = D.findButton(patterns, box);
+    }
+    const home = modal.getRootNode();
+    if (!b && home !== document && home.querySelectorAll) b = D.findButton(patterns, home);
+    return b;
+  }
+
+  // The form's visible buttons, for the log when none is Next or Submit.
+  function buttonReport() {
+    const modal = modalRoot();
+    if (!modal) return 'the form had closed';
+    const seen = Array.from(modal.querySelectorAll(D.BUTTONS)).filter(visible)
+      .map((b) => (text(b) || b.getAttribute('aria-label') || b.value || '?').slice(0, 30));
+    return 'form found ' + foundBy + '; its buttons: ' + (seen.slice(0, 8).join(', ') || 'none') +
+      '; shadow roots inside it: ' + D.shadowRoots(modal).length;
   }
 
   // What dialogs the page showed when the form could not be found, for the
@@ -441,7 +471,7 @@ window.LEA = window.LEA || {};
         };
       }
 
-      const submit = D.findButton(BTN.submit, modalRoot());
+      const submit = formButton(BTN.submit);
       if (submit) {
         if (cfg.safety.dryRun) {
           await discard(report);
@@ -456,19 +486,21 @@ window.LEA = window.LEA || {};
           }
         }
         await clickEl(submit);
-        const gone = await waitFor(() => (!D.findButton(BTN.submit, modalRoot()) ? true : null), { timeout: 15000 });
+        const gone = await waitFor(() => (!formButton(BTN.submit) ? true : null), { timeout: 15000 });
         await closeConfirmation();
         if (!gone) return { status: 'failed', reason: 'Submit clicked but the form did not close' };
         return { status: 'applied', reason: 'submitted' };
       }
 
-      const nextBtn = D.findButton(BTN.review, modalRoot()) || D.findButton(BTN.next, modalRoot());
+      const nextBtn = formButton(BTN.review) || formButton(BTN.next);
       if (!nextBtn) {
         const errs = errorsOnScreen();
+        const seen = buttonReport();
         await discard(report);
         return {
           status: 'failed',
-          reason: errs.length ? 'no Next/Submit button; errors: ' + errs.join('; ') : 'no Next/Submit button on step ' + step
+          reason: (errs.length ? 'no Next/Submit button; errors: ' + errs.join('; ') : 'no Next/Submit button on step ' + step) +
+            ' (' + seen + ')'
         };
       }
 

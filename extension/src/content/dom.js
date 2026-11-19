@@ -18,8 +18,7 @@ window.LEA = window.LEA || {};
   // the Easy Apply form among them - inside one, where document.querySelector
   // cannot see. Listed at most once a second: walking the page is not free.
   let shadowCache = { at: 0, roots: [] };
-  function shadowRoots() {
-    if (Date.now() - shadowCache.at < 1000) return shadowCache.roots.filter((r) => r.host.isConnected);
+  function shadowRootsIn(top) {
     const roots = [];
     const walk = (root) => {
       for (const el of root.querySelectorAll('*')) {
@@ -28,9 +27,16 @@ window.LEA = window.LEA || {};
         if (el.shadowRoot && !/^lea-/.test(el.id)) { roots.push(el.shadowRoot); walk(el.shadowRoot); }
       }
     };
-    walk(document);
-    shadowCache = { at: Date.now(), roots };
+    walk(top);
     return roots;
+  }
+  function shadowRoots(within) {
+    // Inside one element (a form, say) the walk is small and always fresh, so
+    // a root the form's latest step created is never missed.
+    if (within) return shadowRootsIn(within);
+    if (Date.now() - shadowCache.at < 1000) return shadowCache.roots.filter((r) => r.host.isConnected);
+    shadowCache = { at: Date.now(), roots: shadowRootsIn(document) };
+    return shadowCache.roots;
   }
 
   // Where a lookup with no root searches: the page, then its shadow roots.
@@ -177,14 +183,18 @@ window.LEA = window.LEA || {};
     return true;
   }
 
+  const BUTTONS = 'button, a[role="button"], [role="button"], input[type="submit"]';
+
   // Finds a <button> whose visible text or aria-label matches any pattern.
   function findButton(patterns, root) {
-    const buttons = scopes(root).flatMap((scope) => Array.from(scope.querySelectorAll('button, a[role="button"]')));
+    // Within a root, any shadow roots nested inside it count as part of it.
+    const where = root ? [root, ...shadowRoots(root)] : scopes();
+    const buttons = where.flatMap((scope) => Array.from(scope.querySelectorAll(BUTTONS)));
     for (const re of [].concat(patterns)) {
       for (const b of buttons) {
         if (!visible(b)) continue;
         const label = (b.getAttribute('aria-label') || '').trim();
-        if (re.test(text(b)) || re.test(label)) return b;
+        if (re.test(text(b)) || re.test(label) || (b.tagName === 'INPUT' && re.test(b.value || ''))) return b;
       }
     }
     return null;
@@ -360,7 +370,7 @@ window.LEA = window.LEA || {};
   }
 
   LEA.dom = {
-    sleep, rand, humanPause, q, qa, labelFor, shadowRoots, visible, text, blockText, waitFor, waitGone,
+    sleep, rand, humanPause, q, qa, labelFor, shadowRoots, BUTTONS, visible, text, blockText, waitFor, waitGone,
     clickEl, setValue, setSelect, findButton, scrollThrough, labelOf, isEditable,
     fileFromDataUrl, sameFileName, panel
   };
