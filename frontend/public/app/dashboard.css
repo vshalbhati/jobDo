@@ -382,6 +382,56 @@ td.rate { white-space: nowrap; }
 .chip small { margin-left: 6px; font-size: 11px; font-weight: 500; opacity: .75; font-variant-numeric: tabular-nums; }
 .chips .none { font-size: 12px; color: var(--muted); }
 
+/* The posting's email, and mailing the hiring team from your own Gmail. */
+td.contact { white-space: nowrap; font-size: 12.5px; }
+td.contact .addr { display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+td.contact .addr small { color: var(--muted); margin-left: 4px; }
+td.contact .none { color: var(--muted); }
+td.contact .mailed { display: block; color: var(--status-good); font-size: 11.5px; margin-top: 2px; }
+.mail-btn {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 4px;
+  font-size: 11.5px; font-weight: 550; padding: 4px 9px; border-radius: 8px;
+  border: 1px solid var(--border-strong); background: var(--surface-1); color: var(--text-primary);
+  transition: background .12s, border-color .12s;
+}
+.mail-btn .ic { width: 13px; height: 13px; vertical-align: 0; color: var(--series-1); }
+.mail-btn:hover { background: var(--hover); border-color: color-mix(in srgb, var(--series-1) 45%, var(--border-strong)); }
+.mail-btn.again { color: var(--text-secondary); }
+
+.primary {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12.5px; font-weight: 600; padding: 7px 15px; border-radius: 10px; line-height: 1.2;
+  border: 1px solid var(--series-1); background: var(--series-1); color: #ffffff; box-shadow: var(--shadow-sm);
+}
+.primary:hover { background: color-mix(in srgb, var(--series-1) 88%, #000000); }
+.primary:disabled { opacity: .55; cursor: default; }
+.primary .ic { color: #ffffff; }
+
+.mail-dialog {
+  width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0;
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md);
+  background: var(--surface-1); color: var(--text-primary);
+}
+.mail-dialog::backdrop { background: rgba(10, 10, 8, .45); }
+.mail-dialog form { display: flex; flex-direction: column; gap: 12px; padding: 20px 22px 18px; }
+.mail-head h2 { margin: 0; font-size: 17px; }
+.mail-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.mail-row > span { width: 64px; flex: none; color: var(--muted); font-size: 12.5px; }
+.mail-row select { flex: 1; min-width: 0; margin-top: 0 !important; }
+.mail-field { display: block; font-size: 12.5px; font-weight: 550; color: var(--text-secondary); margin-top: 6px; }
+.mail-dialog input:not([type=checkbox]), .mail-dialog select, .mail-dialog textarea {
+  width: 100%; margin-top: 5px; padding: 8px 11px; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 400;
+  color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border-strong);
+}
+.mail-dialog textarea { resize: vertical; line-height: 1.5; }
+.mail-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.mail-again { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
+.mail-setup { font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+.mail-msg { margin: 0; min-height: 1.2em; font-size: 12.5px; color: var(--muted); }
+.mail-msg.ok { color: var(--status-good); }
+.mail-msg.err { color: var(--status-critical); }
+.mail-foot { display: flex; justify-content: flex-end; gap: 10px; }
+
 @media (max-width: 1000px) {
   .headline { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, 1fr); }

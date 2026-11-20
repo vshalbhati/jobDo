@@ -6,7 +6,8 @@ import {
   rateLimit, clearRateLimit, validateEmail, validatePassword
 } from './auth.js';
 import { rankerConfigured, rankJobs } from './ranker.js';
-import { mailConfigured, sendMail } from './mail.js';
+import { mailConfigured, sendMail, sendAs, verifyAccount } from './mail.js';
+import { vaultReady, seal, open } from './vault.js';
 import { runReport, companyReport, validZone } from './report.js';
 import { BOARDS, validCompany, lookupCompany } from './companies.js';
 import { checkCompanies, MAX_COMPANIES } from './watch.js';
@@ -258,6 +259,182 @@ api.delete('/applications', requireAuth, async (req, res, next) => {
     }
     await req.repo.applications.deleteAll();
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ------------------------------------------------ mailing the hiring team
+//
+// From your own Gmail, with an app password you give once in Settings. The
+// password is sealed (vault.js) before it is stored and is never sent back:
+// GET /mailbox says only whether one is saved. Mail goes only to an address
+// the job posting itself gave, only for jobs you applied to, and once per job
+// unless you ask to send again.
+
+const DEFAULT_SUBJECT = 'Application for {{title}} at {{company}}';
+const DEFAULT_BODY = [
+  'Hi,',
+  '',
+  'I recently applied for the {{title}} position at {{company}} and wanted to reach out directly to express my interest.',
+  '',
+  'I have attached my resume for your reference. I would welcome the chance to discuss how I can contribute to your team.',
+  '',
+  'Thank you for your time.',
+  '',
+  'Best regards,',
+  '{{name}}'
+].join('\n');
+const MAX_SUBJECT = 200;
+const MAX_BODY = 5000;
+
+const mailboxView = (m) => ({
+  available: vaultReady(),
+  connected: !!m,
+  address: m ? m.address : '',
+  verifiedAt: m ? m.verifiedAt : null,
+  subject: (m && m.subject) || DEFAULT_SUBJECT,
+  body: (m && m.body) || DEFAULT_BODY,
+  defaults: { subject: DEFAULT_SUBJECT, body: DEFAULT_BODY }
+});
+
+// A subject is one line: a line break there would start a new mail header.
+const oneLine = (s) => String(s).replace(/[\r\n]+/g, ' ').trim();
+const noMailbox = (res) => res.status(503).json({
+  error: 'Mailing from your own Gmail is not set up on this server (MAIL_SECRET_KEY).'
+});
+
+api.get('/mailbox', requireAuth, async (req, res, next) => {
+  try {
+    res.json(mailboxView(vaultReady() ? await req.repo.mailbox.get() : null));
+  } catch (e) { next(e); }
+});
+
+// { address, appPassword } to connect or change the account (checked with
+// Gmail before it is saved); { subject, body } to change the templates.
+api.put('/mailbox', requireAuth, async (req, res, next) => {
+  try {
+    if (!vaultReady()) return noMailbox(res);
+    const b = req.body || {};
+    const existing = await req.repo.mailbox.get();
+    const patch = {};
+
+    let address = null;
+    if (b.address !== undefined) {
+      address = validateEmail(b.address);
+      if (!address) return res.status(400).json({ error: 'That does not look like an email address.' });
+    }
+    let password = '';
+    if (b.appPassword !== undefined && String(b.appPassword).trim() !== '') {
+      // Google shows app passwords in four groups of four.
+      password = String(b.appPassword).replace(/\s+/g, '');
+      if (!/^[a-z]{16}$/i.test(password)) {
+        return res.status(400).json({ error: 'A Gmail app password is 16 letters (Google shows it as four groups of four). Your normal Gmail password will not work here.' });
+      }
+    }
+    const who = address || (existing && existing.address) || '';
+    if (!password && (!existing || (address && address !== existing.address))) {
+      return res.status(400).json({ error: who ? 'Enter the app password for ' + who + ' as well.' : 'Enter your Gmail address and its app password.' });
+    }
+    if (password) {
+      if (!who) return res.status(400).json({ error: 'Enter your Gmail address as well.' });
+      const limit = await rateLimit('mailbox|' + req.user.id, 8);
+      if (!limit.allowed) {
+        res.set('Retry-After', String(limit.retryAfter));
+        return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+      }
+      try {
+        await verifyAccount({ address: who, password });
+      } catch (e) {
+        if (e.code === 'EAUTH') {
+          return res.status(400).json({ error: e.message + ' Check the address, and that the app password was made for this account (myaccount.google.com/apppasswords).' });
+        }
+        return res.status(502).json({ error: 'Could not reach Gmail to check it: ' + e.message });
+      }
+      patch.address = who;
+      patch.secret = seal(password, req.user.id);
+      patch.verifiedAt = Date.now();
+    }
+
+    if (b.subject !== undefined) {
+      const s = oneLine(b.subject);
+      if (s.length > MAX_SUBJECT) return res.status(400).json({ error: 'The subject can be at most ' + MAX_SUBJECT + ' characters.' });
+      patch.subject = s === DEFAULT_SUBJECT ? '' : s;
+    }
+    if (b.body !== undefined) {
+      const t = String(b.body).replace(/\r\n/g, '\n').trim();
+      if (t.length > MAX_BODY) return res.status(400).json({ error: 'The message can be at most ' + MAX_BODY + ' characters.' });
+      patch.body = t === DEFAULT_BODY ? '' : t;
+    }
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update.' });
+
+    res.json(mailboxView(await req.repo.mailbox.save(patch)));
+  } catch (e) { next(e); }
+});
+
+api.delete('/mailbox', requireAuth, async (req, res, next) => {
+  try {
+    if (vaultReady()) await req.repo.mailbox.remove();
+    res.json(mailboxView(null));
+  } catch (e) { next(e); }
+});
+
+// { jobId, site, to, subject, body, attachResume = true, again = false }
+api.post('/applications/email', requireAuth, async (req, res, next) => {
+  try {
+    if (!vaultReady()) return noMailbox(res);
+    const b = req.body || {};
+    if (typeof b.jobId !== 'string' || !b.jobId) return res.status(400).json({ error: 'Expected { jobId, site, to, subject, body }.' });
+
+    const box = await req.repo.mailbox.get();
+    if (!box) return res.status(400).json({ error: 'Add your Gmail address and app password in Settings first.' });
+
+    const app = await req.repo.applications.find(b.jobId, b.site);
+    if (!app) return res.status(404).json({ error: 'No such application on this account.' });
+    if (app.status !== 'applied') return res.status(400).json({ error: 'Only jobs you applied to can be followed up by email.' });
+
+    const to = validateEmail(b.to);
+    if (!to || !app.contactEmails.includes(to)) {
+      return res.status(400).json({ error: 'jobDo only mails an address the job posting itself gave' + (app.contactEmails.length ? ': ' + app.contactEmails.join(', ') + '.' : '. This one gave none.') });
+    }
+    if (app.emailedAt && !b.again) {
+      return res.status(409).json({ error: 'You already mailed ' + app.emailedTo + ' about this job.', emailedAt: app.emailedAt, emailedTo: app.emailedTo });
+    }
+    const subject = oneLine(b.subject || '');
+    const text = String(b.body || '').replace(/\r\n/g, '\n').trim();
+    if (!subject || subject.length > MAX_SUBJECT) return res.status(400).json({ error: 'The subject must be 1 to ' + MAX_SUBJECT + ' characters.' });
+    if (!text || text.length > MAX_BODY) return res.status(400).json({ error: 'The message must be 1 to ' + MAX_BODY + ' characters.' });
+
+    // Your own account, but still: a runaway client must not be able to
+    // send a stream of mail in your name.
+    const limit = await rateLimit('hiremail|' + req.user.id, 10);
+    if (!limit.allowed) {
+      res.set('Retry-After', String(limit.retryAfter));
+      return res.status(429).json({ error: 'That is a lot of mail at once. Try again in a few minutes.' });
+    }
+
+    let password;
+    try {
+      password = open(box.secret, req.user.id);
+    } catch {
+      return res.status(400).json({ error: 'Your saved app password can no longer be read on this server. Enter it again in Settings.' });
+    }
+
+    const attachments = [];
+    if (b.attachResume !== false) {
+      const current = await req.repo.resumes.current();
+      const file = current ? await req.repo.resumes.download(current.id) : null;
+      if (file && file.buffer) attachments.push({ filename: safeName(file.filename), content: file.buffer, contentType: file.mime });
+    }
+
+    try {
+      await sendAs({ address: box.address, password }, { to, subject, text, attachments });
+    } catch (e) {
+      if (e.code === 'EAUTH') return res.status(400).json({ error: 'Gmail refused your saved app password. Enter a new one in Settings.' });
+      return res.status(502).json({ error: 'Gmail did not take the message: ' + e.message });
+    } finally {
+      password = null;
+    }
+    const saved = await req.repo.applications.markEmailed(app.jobId, app.site, to);
+    res.json({ sent: true, from: box.address, to, attached: attachments.map((a) => a.filename), emailedAt: saved && saved.emailedAt });
   } catch (e) { next(e); }
 });
 

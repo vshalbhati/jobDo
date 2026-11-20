@@ -51,6 +51,8 @@ app.get('/api/health', async (_req, res) => res.json({
   signupOpen: config.allowSignup,
   ranking: rankerConfigured(),
   email: mailConfigured(),
+  // Mailing the hiring team from each person's own Gmail (MAIL_SECRET_KEY).
+  hiringMail: !!config.mailSecretKey,
   companyChecks: !!(config.cronSecret && (config.providers === 'memory' || config.supabaseServiceRoleKey)),
   rateLimits: await rateLimitStore()
 }));

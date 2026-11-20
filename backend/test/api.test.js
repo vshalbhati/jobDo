@@ -901,6 +901,121 @@ section('favourite companies (read on a schedule, matches go on the job list)');
   globalThis.fetch = realFetch;
 }
 
+section('mailing the hiring team from your own Gmail');
+{
+  const { outbox, TEST_WRONG_PASSWORD } = await import('../src/mail.js');
+  const { mailboxTable } = await import('../src/providers.memory.js');
+  const { emailsIn } = await import('../src/contact.js');
+  const { seal, open } = await import('../src/vault.js');
+  const APP_PW = 'abcd efgh ijkl mnop';
+
+  ok('addresses are read from a posting, hidden ones too, without automated senders or image names',
+    JSON.stringify(emailsIn('Send your CV to HR@Acme.com. Questions: priya [at] acme [dot] in, or careers(at)acme(dot)com. ' +
+      'Do not write to noreply@acme.com; logo@2x.png; hr@acme.com again; a@b.co; one too many@x.io')) ===
+    JSON.stringify(['hr@acme.com', 'priya@acme.in', 'careers@acme.com']), emailsIn('Send your CV to HR@Acme.com. priya [at] acme [dot] in, careers(at)acme(dot)com'));
+  ok('a posting with no address gives none', emailsIn('Apply on our website. 5+ years @ a startup.').length === 0);
+
+  const sealed = seal('secretpassword12', 'user-1');
+  ok('a sealed password is not readable, and opens again for its account', !sealed.includes('secretpassword12') && open(sealed, 'user-1') === 'secretpassword12');
+  let threw = false;
+  try { open(sealed, 'user-2'); } catch { threw = true; }
+  ok('  but not for another account', threw);
+  threw = false;
+  try { open(sealed.slice(0, -2) + (sealed.endsWith('A') ? 'BB' : 'AA'), 'user-1'); } catch { threw = true; }
+  ok('  and not once tampered with', threw);
+
+  const now2 = Date.now();
+  await req('POST', '/api/applications', { token: refreshedToken, body: { records: [
+    { jobId: 'm1', title: 'Backend Developer', company: 'Acme', status: 'applied', at: now2, site: 'linkedin',
+      description: 'Great role. Send your resume to careers@acme.com or talent [at] acme [dot] com.' },
+    { jobId: 'm2', title: 'Data Engineer', company: 'Globex', status: 'applied', at: now2, site: 'linkedin', description: 'Apply on the website.' },
+    { jobId: 'm3', title: 'QA', company: 'Initech', status: 'skipped', at: now2, site: 'linkedin', description: 'Mail qa@initech.com' }
+  ] } });
+  r = await req('GET', '/api/applications', { token: refreshedToken });
+  const m1 = r.data.records.find((x) => x.jobId === 'm1');
+  ok('the dashboard gets the addresses each posting gave', JSON.stringify(m1.contactEmails) === '["careers@acme.com","talent@acme.com"]' && m1.emailedAt === null,
+    m1);
+  ok('  and none for a posting that gave none', r.data.records.find((x) => x.jobId === 'm2').contactEmails.length === 0);
+  await req('POST', '/api/applications', { token: refreshedToken, body: { records: [{ jobId: 'm1', title: 'Backend Developer', company: 'Acme', status: 'applied', at: now2, site: 'linkedin' }] } });
+  r = await req('GET', '/api/applications', { token: refreshedToken });
+  ok('  a record re-sent without its posting keeps them', r.data.records.find((x) => x.jobId === 'm1').contactEmails.length === 2);
+
+  r = await req('GET', '/api/mailbox', { token: refreshedToken });
+  ok('no Gmail connected at first, with a default template', r.status === 200 && r.data.available === true && r.data.connected === false &&
+    /\{title\}/.test(r.data.subject) && /\{name\}/.test(r.data.body), r.data);
+
+  const mail = { jobId: 'm1', site: 'linkedin', to: 'careers@acme.com', subject: 'Backend Developer at Acme', body: 'Hi, I applied today.' };
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: mail });
+  ok('mailing before connecting a Gmail is refused', r.status === 400 && /Settings first/.test(r.data.error), r.data);
+
+  r = await req('PUT', '/api/mailbox', { token: refreshedToken, body: { address: 'me@gmail.com' } });
+  ok('an address alone is not enough', r.status === 400 && /app password/.test(r.data.error), r.data);
+  r = await req('PUT', '/api/mailbox', { token: refreshedToken, body: { address: 'me@gmail.com', appPassword: 'MyGmail-Password1' } });
+  ok('a normal password is turned away with a hint', r.status === 400 && /16 letters/.test(r.data.error), r.data);
+  r = await req('PUT', '/api/mailbox', { token: refreshedToken, body: { address: 'me@gmail.com', appPassword: TEST_WRONG_PASSWORD } });
+  ok('a password Gmail rejects is not saved', r.status === 400 && /did not accept/.test(r.data.error), r.data);
+  r = await req('GET', '/api/mailbox', { token: refreshedToken });
+  ok('  so nothing is connected', r.data.connected === false, r.data);
+
+  r = await req('PUT', '/api/mailbox', { token: refreshedToken, body: { address: 'Me@Gmail.com', appPassword: APP_PW } });
+  ok('a good app password is checked and saved', r.status === 200 && r.data.connected === true && r.data.address === 'me@gmail.com' && !!r.data.verifiedAt, r.data);
+  ok('  and never comes back', !JSON.stringify(r.data).includes('abcdefghijklmnop') && !('secret' in r.data) && !('appPassword' in r.data), Object.keys(r.data));
+  const rowA = mailboxTable().find((x) => x.address === 'me@gmail.com');
+  ok('the database holds it sealed, never readable', !!rowA && /^v1\./.test(rowA.secret) && !rowA.secret.includes('abcdefghijklmnop') &&
+    !JSON.stringify(rowA).includes('abcd efgh'), rowA && rowA.secret);
+
+  r = await req('PUT', '/api/mailbox', { token: refreshedToken, body: { subject: 'About {title}\r\nBcc: everyone@x.com', body: 'Dear team,\n\nI applied for {title}.\n\n{name}' } });
+  ok('the templates are saved, the subject kept to one line', r.status === 200 && r.data.subject === 'About {title} Bcc: everyone@x.com' && /^Dear team/.test(r.data.body), r.data);
+  r = await req('PUT', '/api/mailbox', { token: refreshedToken, body: { address: 'other@gmail.com' } });
+  ok('changing the address needs its app password too', r.status === 400 && /other@gmail\.com/.test(r.data.error), r.data);
+
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: { ...mail, to: 'someone@else.com' } });
+  ok('only an address the posting gave can be mailed', r.status === 400 && /posting itself gave: careers@acme\.com, talent@acme\.com/.test(r.data.error), r.data);
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: { ...mail, jobId: 'm3', to: 'qa@initech.com' } });
+  ok('only jobs you applied to', r.status === 400 && /applied to/.test(r.data.error), r.data);
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: { ...mail, jobId: 'nope' } });
+  ok('an unknown job is a 404', r.status === 404, r.status);
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: { ...mail, subject: '' } });
+  ok('a subject is required', r.status === 400 && /subject/.test(r.data.error), r.data);
+
+  const before = outbox.length;
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: { ...mail, to: 'Careers@Acme.com' } });
+  const sent = outbox[outbox.length - 1] || {};
+  ok('the mail goes out from your own address, to the posting\'s', r.status === 200 && r.data.sent === true && outbox.length === before + 1 &&
+    sent.from === 'me@gmail.com' && sent.replyTo === 'me@gmail.com' && sent.to === 'careers@acme.com' && sent.subject === mail.subject && sent.text === mail.body, { data: r.data, sent });
+  ok('  with your resume attached', sent.attachments && sent.attachments.length === 1 && /.pdf$/.test(sent.attachments[0].filename) &&
+    sent.attachments[0].content.length > 0, sent.attachments && sent.attachments.map((a) => a.filename));
+  r = await req('GET', '/api/applications', { token: refreshedToken });
+  const m1b = r.data.records.find((x) => x.jobId === 'm1');
+  ok('the application notes when and to whom', m1b.emailedTo === 'careers@acme.com' && m1b.emailedAt > 0, m1b);
+
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: mail });
+  ok('a second mail about the same job needs asking for', r.status === 409 && r.data.emailedTo === 'careers@acme.com', r.data);
+  r = await req('POST', '/api/applications/email', { token: refreshedToken, body: { ...mail, to: 'talent@acme.com', again: true, attachResume: false } });
+  ok('  and then goes, without the resume if you say so', r.status === 200 && outbox[outbox.length - 1].attachments.length === 0 && outbox[outbox.length - 1].to === 'talent@acme.com', r.data);
+
+  r = await req('GET', '/api/mailbox', { token: tokenB });
+  ok("another account sees none of it", r.data.connected === false && r.data.address === '', r.data);
+  r = await req('POST', '/api/applications/email', { token: tokenB, body: mail });
+  ok('  and cannot mail from it, or about your jobs', r.status === 400 && /Settings first/.test(r.data.error), r.data);
+
+  // A sealed password moved onto another account does not open there.
+  const rowB = { secret: rowA.secret };
+  await req('PUT', '/api/mailbox', { token: tokenB, body: { address: 'b@gmail.com', appPassword: APP_PW } });
+  const tableB = mailboxTable().find((x) => x.address === 'b@gmail.com');
+  ok('the same password seals differently for each account', tableB && tableB.secret !== rowA.secret, tableB);
+  const { repoFor } = await import('../src/providers.memory.js');
+  await repoFor({ id: tableB.userId }).mailbox.save({ secret: rowB.secret });
+  await req('POST', '/api/applications', { token: tokenB, body: { records: [{ jobId: 'b1', title: 'X', company: 'Y', status: 'applied', at: now2, description: 'cv to jobs@y.com' }] } });
+  r = await req('POST', '/api/applications/email', { token: tokenB, body: { jobId: 'b1', site: 'linkedin', to: 'jobs@y.com', subject: 's', body: 'b' } });
+  ok('  and one copied from another account cannot be used', r.status === 400 && /can no longer be read/.test(r.data.error), r.data);
+
+  r = await req('DELETE', '/api/mailbox', { token: refreshedToken });
+  ok('removing it forgets the address and password', r.status === 200 && r.data.connected === false && !mailboxTable().some((x) => x.address === 'me@gmail.com'), r.data);
+  r = await req('GET', '/api/mailbox');
+  ok('it all needs a sign-in', r.status === 401, r.status);
+}
+
 section('logout');
 r = await req('POST', '/api/auth/logout', { token: tokenB });
 ok('logout succeeds', r.status === 200);

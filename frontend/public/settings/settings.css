@@ -189,6 +189,13 @@ main.settings tr.builtin td:nth-child(2) input { color: var(--muted); }
 
 details { margin-top: 14px; font-size: 12.5px; color: var(--muted); }
 details summary { cursor: pointer; font-weight: 550; }
+details.howto ol { margin: 8px 0 6px; padding-left: 20px; line-height: 1.7; color: var(--text-secondary); }
+details.howto a { color: var(--series-1); }
+
+/* Email the hiring team: a section with its own Save button. */
+main.settings label.wide-label { margin-top: 10px; }
+.mail-actions { margin-top: 14px; gap: 10px 12px; }
+.mail-actions .status-line { margin: 0; }
 pre {
   white-space: pre-wrap; max-height: 280px; overflow: auto; padding: 12px; font-size: 11.5px;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary);

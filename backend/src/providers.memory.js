@@ -6,6 +6,13 @@
 // Not for production: PROVIDERS defaults to 'supabase' unless NODE_ENV=test.
 import crypto from 'node:crypto';
 import { config } from './config.js';
+import { emailsIn, joinEmails, splitEmails } from './contact.js';
+
+const mailboxRows = new Map();    // user id -> { address, secret, subject, body, verified_at, updated_at }
+
+// What the table holds, for the test that checks no password is ever stored
+// readable.
+export const mailboxTable = () => [...mailboxRows.entries()].map(([userId, r]) => ({ userId, ...r }));
 
 const usersByEmail = new Map();   // email -> { id, email, password }
 const usersById = new Map();
@@ -39,7 +46,7 @@ const newCode = (user) => {
 export function resetMemory() {
   usersByEmail.clear(); usersById.clear(); tokens.clear(); refreshTokens.clear();
   rows.length = 0; resumeRows.length = 0; files.clear(); settingsRows.clear(); queueRows.length = 0;
-  watchRows.clear(); seenRows.clear();
+  watchRows.clear(); seenRows.clear(); mailboxRows.clear();
 }
 
 const err = (message, status) => { const e = new Error(message); e.status = status; return e; };
@@ -144,8 +151,12 @@ export function repoFor(user) {
           // As in Postgres: a record without a description keeps the saved
           // one, and the rating is never touched by a sync.
           row.description = description(r.description) || prev.description || '';
+          row.contact_emails = description(r.description)
+            ? joinEmails(emailsIn(description(r.description))) : (prev.contact_emails || '');
           row.feedback = prev.feedback || null;
           row.feedback_at = prev.feedback_at || null;
+          row.emailed_at = prev.emailed_at || null;
+          row.emailed_to = prev.emailed_to || '';
           if (at >= 0) rows[at] = row; else rows.push(row);
           n++;
         }
@@ -173,6 +184,19 @@ export function repoFor(user) {
           .sort((a, b) => b.applied_at - a.applied_at)
           .slice(offset, offset + limit)
           .map(toRecord);
+      },
+
+      async find(jobId, boardId) {
+        const row = mine(rows).find((x) => x.job_id === String(jobId) && x.site === site(boardId));
+        return row ? toRecord(row) : null;
+      },
+
+      async markEmailed(jobId, boardId, to) {
+        const row = mine(rows).find((x) => x.job_id === String(jobId) && x.site === site(boardId));
+        if (!row) return null;
+        row.emailed_at = Date.now();
+        row.emailed_to = str(to);
+        return toRecord(row);
       },
 
       async count() { return mine(rows).length; },
@@ -301,6 +325,29 @@ export function repoFor(user) {
 
     ...watchRepo(uid),
 
+    mailbox: {
+      async get() {
+        const r = mailboxRows.get(uid);
+        return r ? { address: r.address, secret: r.secret, subject: r.subject, body: r.body, verifiedAt: r.verified_at, updatedAt: r.updated_at } : null;
+      },
+
+      async save(patch) {
+        const r = { subject: '', body: '', verified_at: null, ...(mailboxRows.get(uid) || {}) };
+        if (patch.address !== undefined) r.address = patch.address;
+        if (patch.secret !== undefined) r.secret = patch.secret;
+        if (patch.verifiedAt !== undefined) r.verified_at = patch.verifiedAt;
+        if (patch.subject !== undefined) r.subject = patch.subject;
+        if (patch.body !== undefined) r.body = patch.body;
+        // The table's own checks: an address and a sealed secret, always.
+        if (!r.address || !/^v1\./.test(r.secret || '')) throw err('Could not save your email settings.', 500);
+        r.updated_at = Date.now();
+        mailboxRows.set(uid, r);
+        return this.get();
+      },
+
+      async remove() { mailboxRows.delete(uid); }
+    },
+
     settings: {
       async get() {
         return view(settingsRows.get(uid));
@@ -331,7 +378,8 @@ const view = (r) => ({
 const toRecord = (r) => ({
   jobId: r.job_id, title: r.title, company: r.company, location: r.location, url: r.url,
   status: r.status, reason: r.reason, score: r.score, source: r.source, ats: r.ats,
-  site: r.site || 'linkedin', at: r.applied_at, feedback: r.feedback || null
+  site: r.site || 'linkedin', at: r.applied_at, feedback: r.feedback || null,
+  contactEmails: splitEmails(r.contact_emails), emailedAt: r.emailed_at || null, emailedTo: r.emailed_to || ''
 });
 function queueAdd(uid, items) {
   const added = [];

@@ -11,6 +11,7 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
 import { config } from './config.js';
+import { emailsIn, joinEmails, splitEmails } from './contact.js';
 
 const BUCKET = 'resumes';
 
@@ -120,7 +121,11 @@ export function repoFor(user, accessToken) {
             site: site(r.site),
             applied_at: iso(r.at),
             synced_at: new Date().toISOString(),
-            ...(description(r.description) ? { description: description(r.description) } : {})
+            // The addresses go with the posting they were read from.
+            ...(description(r.description) ? {
+              description: description(r.description),
+              contact_emails: joinEmails(emailsIn(description(r.description)))
+            } : {})
           }));
         if (!rows.length) return 0;
         // A bulk upsert writes every column any row names, and a row without
@@ -162,12 +167,30 @@ export function repoFor(user, accessToken) {
 
       async list({ since = 0, limit = 50000, offset = 0 } = {}) {
         const { data, error } = await db.from('applications')
-          .select('job_id,title,company,location,url,status,reason,score,source,ats,site,applied_at,feedback')
+          .select(LIST_COLUMNS)
           .gte('applied_at', iso(since))
           .order('applied_at', { ascending: false })
           .range(offset, offset + limit - 1);
         if (error) throw fail(error, 'Could not read the applications.');
         return (data || []).map(toRecord);
+      },
+
+      // One application, or null.
+      async find(jobId, boardId) {
+        const { data, error } = await db.from('applications')
+          .select(LIST_COLUMNS).eq('job_id', String(jobId)).eq('site', site(boardId)).maybeSingle();
+        if (error) throw fail(error, 'Could not read the application.');
+        return data ? toRecord(data) : null;
+      },
+
+      // Notes that the hiring team was mailed. Returns the record.
+      async markEmailed(jobId, boardId, to) {
+        const { data, error } = await db.from('applications')
+          .update({ emailed_at: new Date().toISOString(), emailed_to: str(to) })
+          .eq('job_id', String(jobId)).eq('site', site(boardId))
+          .select(LIST_COLUMNS);
+        if (error) throw fail(error, 'Could not note the email on the application.');
+        return data && data[0] ? toRecord(data[0]) : null;
       },
 
       async count() {
@@ -330,6 +353,38 @@ export function repoFor(user, accessToken) {
     // Favourite companies, and the postings already considered for them.
     ...watchRepo(db, uid),
 
+    // Your Gmail address and app password, for mailing the hiring team. The
+    // password arrives here already sealed (vault.js) and leaves sealed.
+    mailbox: {
+      async get() {
+        const { data, error } = await db.from('user_mailbox')
+          .select('address,secret,subject,body,verified_at,updated_at').eq('user_id', uid).maybeSingle();
+        if (error) throw fail(error, 'Could not read your email settings.');
+        return data ? toMailbox(data) : null;
+      },
+
+      // { address, secret, verifiedAt } together, or the templates alone on
+      // an existing row.
+      async save(patch) {
+        const row = { user_id: uid, updated_at: new Date().toISOString() };
+        if (patch.address !== undefined) row.address = patch.address;
+        if (patch.secret !== undefined) row.secret = patch.secret;
+        if (patch.verifiedAt !== undefined) row.verified_at = new Date(patch.verifiedAt).toISOString();
+        if (patch.subject !== undefined) row.subject = patch.subject;
+        if (patch.body !== undefined) row.body = patch.body;
+        const { data, error } = await db.from('user_mailbox')
+          .upsert(row, { onConflict: 'user_id' })
+          .select('address,secret,subject,body,verified_at,updated_at').single();
+        if (error) throw fail(error, 'Could not save your email settings.');
+        return toMailbox(data);
+      },
+
+      async remove() {
+        const { error } = await db.from('user_mailbox').delete().eq('user_id', uid);
+        if (error) throw fail(error, 'Could not remove your email settings.');
+      }
+    },
+
     settings: {
       // No row yet means the defaults: rows are created on first save.
       async get() {
@@ -464,7 +519,18 @@ const toRecord = (r) => ({
   status: r.status, reason: r.reason, score: r.score,
   source: r.source, ats: r.ats, site: r.site || 'linkedin',
   at: Date.parse(r.applied_at),
-  feedback: r.feedback || null
+  feedback: r.feedback || null,
+  contactEmails: splitEmails(r.contact_emails),
+  emailedAt: r.emailed_at ? Date.parse(r.emailed_at) : null,
+  emailedTo: r.emailed_to || ''
+});
+
+const LIST_COLUMNS = 'job_id,title,company,location,url,status,reason,score,source,ats,site,applied_at,feedback,' +
+  'contact_emails,emailed_at,emailed_to';
+
+const toMailbox = (r) => ({
+  address: r.address, secret: r.secret, subject: r.subject || '', body: r.body || '',
+  verifiedAt: r.verified_at ? Date.parse(r.verified_at) : null, updatedAt: Date.parse(r.updated_at) || null
 });
 
 const str = (v) => (v === undefined || v === null ? '' : String(v));

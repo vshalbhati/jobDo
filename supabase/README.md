@@ -9,7 +9,7 @@ save the database password somewhere safe.
 
 ## 2. Apply the schema
 
-Run the migrations in order — `0001_init.sql` through `0007_company_watch.sql` —
+Run the migrations in order — `0001_init.sql` through `0008_hiring_contact.sql` —
 either by pasting each into **SQL Editor → New query**, or with the CLI:
 
 ```bash
@@ -30,6 +30,12 @@ applies to before it searches the boards. It also lets an application be
 recorded under `direct`, for links to a company's own site. `0007` adds your
 favourite companies (`company_watch`) and the postings already considered for
 them (`company_seen`); section 6 below sets up the schedule that checks them.
+`0008` keeps the email addresses a job posting gives for applying with each
+application (`contact_emails`, filled in for postings already saved), notes when
+you mailed them (`emailed_at`, `emailed_to`), and adds `user_mailbox`: your Gmail
+address and app password for the dashboard's **Mail them** button. The backend
+encrypts the password (AES-256-GCM, with `MAIL_SECRET_KEY`) before it is stored,
+so the table never holds it readable.
 
 ## 3. Confirm new accounts with an emailed code
 

@@ -553,12 +553,97 @@ function renderUrlPreview() {
 
 // ------------------------------------------------------------------- wiring
 
+// ---------------------------------------------------- email the hiring team
+//
+// Your Gmail and its app password, for the dashboard's "Mail them" button.
+// Saved on its own, straight to the account, which checks it with Gmail and
+// stores it encrypted. The password is never sent back, so the box is always
+// empty: typing in it means "replace the saved one".
+
+let mailbox = null;
+
+const MAIL_FIELDS = ['mail-address', 'mail-password', 'mail-subject', 'mail-body', 'mail-save', 'mail-reset', 'mail-remove'];
+
+function mailSay(msg, kind) {
+  $('mail-msg').className = 'status-line' + (kind ? ' ' + kind : '');
+  $('mail-msg').textContent = msg;
+}
+
+function renderMailbox() {
+  const m = mailbox;
+  $('mailUnavailable').classList.toggle('hidden', !!m.available);
+  for (const id of MAIL_FIELDS) $(id).disabled = !m.available;
+  $('mail-address').value = m.address || (/@(gmail|googlemail)\.com$/i.test(cfg.profile.email || '') ? cfg.profile.email : '');
+  $('mail-password').value = '';
+  $('mail-password').placeholder = m.connected
+    ? 'Saved and hidden. Type a new one only to replace it.'
+    : '16 letters, e.g. abcd efgh ijkl mnop';
+  $('mail-subject').value = m.subject || '';
+  $('mail-body').value = m.body || '';
+  $('mail-remove').classList.toggle('hidden', !m.connected);
+  const status = $('mailStatus');
+  if (!m.available) { status.textContent = ''; return; }
+  status.className = 'status-line' + (m.connected ? ' ok' : '');
+  status.textContent = m.connected
+    ? 'Connected: mail goes out from ' + m.address +
+      (m.verifiedAt ? '. Gmail accepted the app password on ' + new Date(m.verifiedAt).toLocaleDateString() + '.' : '.')
+    : 'Not connected yet. Add your Gmail address and an app password below.';
+}
+
+async function loadMailbox() {
+  try {
+    mailbox = await apiFetch('/mailbox');
+  } catch {
+    // An older server without the feature.
+    mailbox = { available: false, connected: false, address: '', subject: '', body: '', defaults: { subject: '', body: '' } };
+  }
+  renderMailbox();
+}
+
+$('mail-save').onclick = async () => {
+  const address = $('mail-address').value.trim();
+  const password = $('mail-password').value.trim();
+  const body = { subject: $('mail-subject').value, body: $('mail-body').value };
+  if (password) { body.address = address; body.appPassword = password; }
+  else if (address && address.toLowerCase() !== (mailbox.address || '').toLowerCase()) body.address = address;
+  $('mail-save').disabled = true;
+  mailSay(password ? 'Checking it with Gmail…' : 'Saving…');
+  try {
+    mailbox = await apiFetch('/mailbox', json('PUT', body));
+    renderMailbox();
+    mailSay(password ? 'Saved. Gmail accepted the app password.' : 'Saved.', 'ok');
+  } catch (e) {
+    mailSay(e.message, 'err');
+  } finally {
+    $('mail-save').disabled = !mailbox.available;
+  }
+};
+
+$('mail-reset').onclick = () => {
+  $('mail-subject').value = mailbox.defaults.subject;
+  $('mail-body').value = mailbox.defaults.body;
+  mailSay('Restored here. Press Save email settings to keep it.');
+};
+
+$('mail-remove').onclick = async () => {
+  if (!confirm('Remove ' + mailbox.address + ' and its app password from jobDo? You can also revoke the app password on myaccount.google.com/apppasswords.')) return;
+  try {
+    mailbox = await apiFetch('/mailbox', { method: 'DELETE' });
+    renderMailbox();
+    mailSay('Removed. jobDo no longer has your app password.', 'ok');
+  } catch (e) {
+    mailSay('Could not remove it: ' + e.message, 'err');
+  }
+};
+
 // Typing into the "add a skill / add a rule" boxes is not a change until the
 // Add button is pressed, and picking a resume saves itself: neither counts.
 const NOT_EDITS = new Set(['resumeFile', 'newSkill', 'newSkillYears', 'newPattern', 'newAnswer']);
 for (const type of ['input', 'change']) {
   $('form').addEventListener(type, (e) => {
-    if (NOT_EDITS.has(e.target.id)) return;
+    // The email section saves on its own: its app password must never ride
+    // along with the rest of the page.
+    if (NOT_EDITS.has(e.target.id) || e.target.closest('#mail')) return;
     markDirty();
     if (e.target.closest('#search') || e.target.id === 'pt-enabled') renderUrlPreview();
   });
@@ -587,6 +672,7 @@ window.addEventListener('beforeunload', (e) => {
     return;
   }
   renderAll();
+  await loadMailbox();
   $('loading').classList.add('hidden');
   $('form').classList.remove('hidden');
   if (location.hash) document.querySelector(location.hash)?.scrollIntoView();

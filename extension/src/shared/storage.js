@@ -38,6 +38,15 @@ export async function setFeedback(jobId, feedback) {
   return true;
 }
 
+// The hiring team of this job was mailed, from the dashboard.
+export async function setEmailed(jobId, to, at) {
+  const h = await getHistory();
+  if (!h[jobId]) return false;
+  h[jobId] = { ...h[jobId], emailedTo: to || '', emailedAt: at || Date.now() };
+  await chrome.storage.local.set({ [HISTORY_KEY]: h });
+  return true;
+}
+
 export async function clearHistory() {
   await chrome.storage.local.set({ [HISTORY_KEY]: {} });
 }

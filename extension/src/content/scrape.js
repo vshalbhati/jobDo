@@ -198,14 +198,61 @@ window.LEA = window.LEA || {};
 
   // The job's description in the details pane. Every layout so far has headed
   // it "About the job", so that finds it when the class names do not.
+  //
+  // The heading is looked for by its text alone, whatever element holds it,
+  // in the page and in any shadow root. Failing that, the description is the
+  // text around the job's Apply button: the job's own pane, which the ranker
+  // can read as well (it skips the top card's lines it does not need).
+  const ABOUT = /^about (the|this) (job|role|position|opportunity)$/i;
+  const inCard = (el) => !!el.closest('[data-lea-job-id], ' + SEL.jobCard.join(','));
+
+  function aboutHeading() {
+    for (const scope of [document, ...LEA.dom.shadowRoots()]) {
+      const walk = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        const t = n.nodeValue.replace(/\s+/g, ' ').trim();
+        if (t.length > 40 || !ABOUT.test(t)) continue;
+        const el = n.parentElement;
+        if (el && !inCard(el)) return el;
+      }
+      // The words split over several elements: <span>About</span> <span>the job</span>.
+      for (const el of scope.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"], strong, b, p')) {
+        if (ABOUT.test(text(el)) && !inCard(el)) return el;
+      }
+    }
+    return null;
+  }
+
+  function around(el, enough) {
+    let box = el;
+    while (box && box.parentElement && box.parentElement !== document.body && blockText(box).length < enough &&
+      !inCard(box.parentElement) && !box.parentElement.querySelector('[data-lea-job-id], ' + SEL.jobCard.join(','))) box = box.parentElement;
+    return box && blockText(box).length >= enough ? box : null;
+  }
+
+  let describedBy = '';
   function descriptionEl() {
     const known = q(SEL.detailsDescription);
-    if (known) return known;
-    const heading = Array.from(document.querySelectorAll('h1, h2, h3, h4, strong, span'))
-      .find((h) => /^about the job$/i.test(text(h)));
-    let box = heading;
-    while (box && box.parentElement && box !== document.body && blockText(box).length < 300) box = box.parentElement;
-    return box && box !== document.body ? box : null;
+    if (known) { describedBy = 'by class name'; return known; }
+    const heading = aboutHeading();
+    const byHeading = heading && around(heading, 300);
+    if (byHeading) { describedBy = 'by its heading'; return byHeading; }
+    const apply = applyButtons().find((b) => visible(b));
+    const byApply = apply && around(apply, 800);
+    if (byApply) { describedBy = 'around the Apply button'; return byApply; }
+    return null;
+  }
+
+  // Headings in the job pane, for the log when no description is found.
+  function headingsSeen() {
+    const seen = [];
+    for (const scope of [document, ...LEA.dom.shadowRoots()]) {
+      for (const h of scope.querySelectorAll('h1, h2, h3, h4, [role="heading"]')) {
+        const t = text(h).slice(0, 30);
+        if (t && !inCard(h) && !seen.includes(t)) seen.push(t);
+      }
+    }
+    return seen.slice(0, 8);
   }
 
   // The details pane around the description: the largest box holding it that
@@ -241,7 +288,10 @@ window.LEA = window.LEA || {};
       return [
         'clicked ' + clicked,
         'address job ' + (idBefore || 'none') + ' -> ' + (currentJobIdFromUrl() || 'none') + (currentJobIdFromUrl() === job.jobId ? ' (this job)' : ''),
-        desc ? (q(SEL.detailsDescription) ? 'description found' : 'description found by its heading') : 'no description on the page',
+        desc ? 'description found ' + describedBy
+          : 'no description on the page; headings: ' + (headingsSeen().map((h) => '"' + h + '"').join(', ') || 'none') +
+            '; apply buttons: ' + applyButtons().filter(visible).length + '; shadow roots: ' + LEA.dom.shadowRoots().length +
+            '; frames: ' + document.querySelectorAll('iframe').length,
         desc ? (descNow() === before ? 'pane unchanged' : 'pane changed') : '',
         head ? 'pane starts "' + head + '"' : ''
       ].filter(Boolean).join('; ');
@@ -273,9 +323,12 @@ window.LEA = window.LEA || {};
     };
     const loaded = await waitFor(() => (showing() && descriptionEl() ? true : null), { timeout: 15000 });
     if (!loaded) return { ok: false, reason: 'details pane did not load (' + paneReport() + ')' };
+    // Read around the Apply button, the pane's top may be in before the
+    // description below it: give the rest a moment.
+    if (describedBy === 'around the Apply button') await sleep(1500);
 
     // "See more" so the description text is complete before we score it.
-    const more = q(SEL.seeMore) || LEA.dom.findButton([/^(…\s*)?(see|show) more$/i], descriptionEl());
+    const more = q(SEL.seeMore) || LEA.dom.findButton([/^(…\s*)?(see|show) more$/i, /^…\s*more$/i], descriptionEl());
     if (more && visible(more)) { await clickEl(more); await sleep(400); }
 
     return {
@@ -294,7 +347,7 @@ window.LEA = window.LEA || {};
     const known = qa(SEL.applyButton);
     if (known.length) return known;
     const inCard = SEL.jobCard.concat('[data-lea-job-id]').join(',');
-    return Array.from(document.querySelectorAll('button, a[role="button"], a[href]')).filter((b) => {
+    return qa('button, a[role="button"], a[href]').filter((b) => {
       const label = (text(b) || b.getAttribute('aria-label') || '').trim();
       return /^(easy apply|apply( now)?|apply on company (site|website))\b/i.test(label) && !b.closest(inCard);
     });

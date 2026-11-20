@@ -39,6 +39,7 @@
     <a href="#safety" data-icon="shield">Daily run &amp; safety</a>
     <a href="#portal" data-icon="building">Company sites</a>
     <a href="#answers" data-icon="message">Answers</a>
+    <a href="#mail" data-icon="mail">Email the hiring team</a>
   </nav>
   <p class="side-note" data-icon="zap">Saved to your account. The extension downloads it before every run.</p>
 </aside>
@@ -291,6 +292,53 @@
       <button id="addRule" class="ghost" type="button" data-icon="plus">Add rule</button>
     </div>
     <button id="resetRules" class="ghost small" type="button" data-icon="restore">Restore built-in rules</button>
+  </section>
+
+  <section id="mail" class="card">
+    <div class="section-head">
+      <span class="card-icon" data-icon="mail"></span>
+      <div>
+      <h2>8. Email the hiring team</h2>
+      <p class="hint">
+        When a job description gives an email address for applications, the dashboard shows it next to the job
+        with a <b>Mail them</b> button. The mail goes from your own Gmail, so it comes from you and replies reach you.
+        This section saves on its own, with its own button.
+      </p>
+      </div>
+    </div>
+
+    <p id="mailUnavailable" class="notice hidden" data-icon="alert">This server is not set up for it yet (MAIL_SECRET_KEY).</p>
+    <p id="mailStatus" class="status-line"></p>
+
+    <div class="grid">
+      <label>Your Gmail address<input id="mail-address" type="email" autocomplete="email" placeholder="you@gmail.com"></label>
+      <label>Gmail app password
+        <input id="mail-password" type="password" autocomplete="new-password" spellcheck="false" placeholder="16 letters, e.g. abcd efgh ijkl mnop">
+      </label>
+    </div>
+    <details class="howto">
+      <summary>How to get an app password</summary>
+      <ol>
+        <li>Turn on <b>2-Step Verification</b> for your Google account, if it is not on yet (Google asks for it first).</li>
+        <li>Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>, signed in as that Gmail.</li>
+        <li>Name it <b>jobDo</b> and press <b>Create</b>. Copy the 16 letters Google shows into the box above.</li>
+      </ol>
+      <p class="hint">It is not your Gmail password, and it can only send and read mail, not change your account.
+        jobDo checks it with Gmail, then stores it encrypted (AES-256) under a key only the server has: it is never shown
+        again, not even to you. You can revoke it on that same Google page at any time, and <b>Remove</b> below deletes it from jobDo.</p>
+    </details>
+
+    <h3>Your message</h3>
+    <p class="hint">Placeholders: <code>{{title}}</code> <code>{{company}}</code> <code>{{name}}</code>. You can change each mail before it goes.</p>
+    <label class="wide-label">Subject<input id="mail-subject" maxlength="200"></label>
+    <label class="wide-label">Message<textarea id="mail-body" rows="9" maxlength="5000"></textarea></label>
+
+    <div class="row mail-actions">
+      <button id="mail-save" class="primary" type="button" data-icon="save">Save email settings</button>
+      <button id="mail-reset" class="ghost small" type="button" data-icon="restore">Restore the default message</button>
+      <button id="mail-remove" class="ghost small hidden" type="button" data-icon="trash">Remove my Gmail</button>
+      <span id="mail-msg" class="status-line"></span>
+    </div>
   </section>
   </div>
 </main>

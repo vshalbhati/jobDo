@@ -221,12 +221,48 @@ export async function exportRatings() {
   return data.jobs.length;
 }
 
+// ------------------------------------------------ mailing the hiring team
+
+// Your Gmail as the account has it: { available, connected, address,
+// subject, body }, never the app password. null when the extension is not
+// signed in to an account.
+export async function loadMailbox() {
+  if (IS_EXTENSION) {
+    const cfg = await (await extStorage()).getConfig();
+    const sync = await import('../shared/sync.js');
+    if (!sync.isConnected(cfg)) return null;
+    return sync.getMailbox(cfg);
+  }
+  return apiGet('/mailbox');
+}
+
+// mail: { to, subject, body, attachResume, again }. Sent by the account from
+// your own Gmail; inside the extension the record here is marked as well.
+export async function sendHiringMail(record, mail) {
+  const payload = { jobId: record.jobId, site: record.site, ...mail };
+  if (IS_EXTENSION) {
+    const store = await extStorage();
+    const sync = await import('../shared/sync.js');
+    const cfg = await store.getConfig();
+    if (!sync.isConnected(cfg)) throw new Error('sign in to your jobDo account first');
+    const out = await sync.sendHiringMail(cfg, payload);
+    await store.setEmailed(record.jobId, out.to, out.emailedAt || Date.now());
+    return out;
+  }
+  return apiFetch('/applications/email', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
 // ------------------------------------------------------------------ actions
 
 // Settings and the job list are pages of the website. Inside the extension
 // they are on another origin, so they open in a tab at the account's web address.
-export async function openSettings() {
-  return openWebPage('settings/');
+// section: an id on the Settings page to open at, e.g. 'mail'.
+export async function openSettings(section) {
+  return openWebPage('settings/' + (section ? '#' + section : ''));
 }
 
 export async function openJobList() {

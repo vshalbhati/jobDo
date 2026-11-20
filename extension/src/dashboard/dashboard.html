@@ -218,6 +218,7 @@
             <th data-sort="score" class="sortable num">Score</th>
             <th>Good match?</th>
             <th data-sort="status" class="sortable">Outcome</th>
+            <th data-sort="contact" class="sortable" title="An address the job posting gave for applying">Email</th>
             <th>Detail</th>
           </tr>
         </thead>
@@ -234,6 +235,34 @@
     </div>
   </section>
 </main>
+
+<!-- Mailing the hiring team: the message is filled in from your template and
+     goes only after you press Send. -->
+<dialog id="mailDialog" class="mail-dialog" aria-labelledby="mailTitle">
+  <form method="dialog" id="mailForm">
+    <header class="mail-head">
+      <h2 id="mailTitle">Mail the hiring team</h2>
+      <p id="mailJob" class="card-sub"></p>
+    </header>
+    <div id="mailSetup" class="mail-setup hidden">
+      <p id="mailSetupText"></p>
+      <button id="mailOpenSettings" class="ghost" type="button" data-icon="settings"><span class="label">Open Settings</span></button>
+    </div>
+    <div id="mailFields">
+      <div class="mail-row"><span>From</span><b id="mailFrom"></b></div>
+      <label class="mail-row"><span>To</span><select id="mailTo"></select></label>
+      <label class="mail-field">Subject<input id="mailSubject" maxlength="200" required></label>
+      <label class="mail-field">Message<textarea id="mailBody" rows="11" maxlength="5000" required></textarea></label>
+      <label class="mail-check"><input type="checkbox" id="mailAttach" checked> <span id="mailAttachLabel">Attach my resume</span></label>
+      <p id="mailAgain" class="mail-again hidden"></p>
+    </div>
+    <p id="mailMsg" class="mail-msg" role="status"></p>
+    <footer class="mail-foot">
+      <button id="mailCancel" class="ghost" type="button" value="cancel">Cancel</button>
+      <button id="mailSend" class="primary" type="button" data-icon="send"><span class="label">Send</span></button>
+    </footer>
+  </form>
+</dialog>
 
 <script type="module" src="dashboard.js"></script>
 </body>

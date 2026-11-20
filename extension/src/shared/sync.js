@@ -128,6 +128,17 @@ const toRecord = (jobId, r) => ({
   ...(r.description ? { description: String(r.description).slice(0, DESCRIPTION_MAX) } : {})
 });
 
+// Your Gmail for mailing the hiring team: whether one is connected, never
+// its app password.
+export async function getMailbox(cfg) {
+  return authedCall(cfg, '/mailbox');
+}
+
+// { jobId, site, to, subject, body, attachResume, again }
+export async function sendHiringMail(cfg, mail) {
+  return authedCall(cfg, '/applications/email', { method: 'POST', body: mail });
+}
+
 // Your verdict on a job's match, set from the dashboard inside the extension.
 export async function sendFeedback(cfg, jobId, site, feedback) {
   return authedCall(cfg, '/feedback', { method: 'PUT', body: { jobId, site, feedback } });

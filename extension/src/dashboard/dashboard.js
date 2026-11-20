@@ -2,7 +2,7 @@
 import {
   MODE, loadHistory, loadRun, loadSummary, onChange,
   getTheme, setTheme, openSettings, openJobList, signOut, loadThreshold, saveThreshold,
-  loadResume, downloadResume, saveFeedback, exportRatings
+  loadResume, downloadResume, saveFeedback, exportRatings, loadMailbox, sendHiringMail
 } from './source.js';
 import { columnChart, stackedBar, barChart, heatmap } from './charts.js';
 import { icon, hydrateIcons } from './icons.js';
@@ -60,7 +60,12 @@ async function load() {
     site: r.site || 'linkedin',
     ats: r.ats || '',
     at: r.at || 0,
-    feedback: r.feedback === 'good' || r.feedback === 'bad' ? r.feedback : null
+    feedback: r.feedback === 'good' || r.feedback === 'bad' ? r.feedback : null,
+    // Addresses the posting gave for applying, and whether you mailed them.
+    contactEmails: Array.isArray(r.contactEmails) ? r.contactEmails.filter(Boolean) : [],
+    contact: Array.isArray(r.contactEmails) && r.contactEmails[0] ? r.contactEmails[0] : null,
+    emailedAt: r.emailedAt || null,
+    emailedTo: r.emailedTo || ''
   })).sort((a, b) => b.at - a.at);
   render();
 }
@@ -225,7 +230,7 @@ function tableRows() {
   let rows = filtered();
   if (state.status) rows = rows.filter((r) => r.status === state.status);
   if (state.rating) rows = rows.filter((r) => (r.feedback || 'unrated') === state.rating);
-  if (q) rows = rows.filter((r) => (r.title + ' ' + r.company).toLowerCase().includes(q));
+  if (q) rows = rows.filter((r) => (r.title + ' ' + r.company + ' ' + r.contactEmails.join(' ')).toLowerCase().includes(q));
   const { key, dir } = state.sort;
   return rows.sort((a, b) => {
     const x = a[key], y = b[key];
@@ -306,7 +311,7 @@ function renderTable() {
     detail.className = 'detail';
     detail.textContent = r.reason;
 
-    tr.append(when, job, company, route, score, rating, status, detail);
+    tr.append(when, job, company, route, score, rating, status, contactCell(r), detail);
     tbody.appendChild(tr);
   }
 
@@ -369,6 +374,137 @@ function renderRatingsNote(error) {
   const bad = state.records.filter((r) => r.feedback === 'bad').length;
   note.textContent = good + bad ? '\u00b7 ' + (good + bad) + ' rated: ' + good + ' good, ' + bad + ' bad' : '';
 }
+
+// ---------------------------------------------- mailing the hiring team
+
+// The address the posting gave, and for a job you applied to, a button that
+// mails it from your own Gmail. Addresses are only ever set as text.
+function contactCell(r) {
+  const td = document.createElement('td');
+  td.className = 'contact';
+  if (!r.contactEmails.length) {
+    td.appendChild(el('span', '—', 'none'));
+    td.title = 'The posting gave no email address';
+    return td;
+  }
+  const addr = el('span', r.contactEmails[0], 'addr');
+  addr.title = r.contactEmails.join(', ');
+  if (r.contactEmails.length > 1) addr.appendChild(el('small', '+' + (r.contactEmails.length - 1)));
+  td.appendChild(addr);
+  if (r.status !== 'applied') return td;
+  if (r.emailedAt) {
+    td.appendChild(el('span', 'Mailed ' + new Date(r.emailedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }), 'mailed'));
+  }
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'mail-btn' + (r.emailedAt ? ' again' : '');
+  b.innerHTML = icon(r.emailedAt ? 'refresh' : 'mail');
+  b.appendChild(document.createTextNode(r.emailedAt ? 'Mail again' : 'Mail them'));
+  b.setAttribute('aria-label', (r.emailedAt ? 'Mail again: ' : 'Mail the hiring team: ') + r.title + ' at ' + r.company);
+  b.onclick = () => openMail(r);
+  td.appendChild(b);
+  return td;
+}
+
+let mailbox;          // undefined until first needed; null when not signed in
+let mailing = null;   // the record the dialog is about
+
+const fillTemplate = (t, r) => {
+  const p = (currentResume && currentResume.profile) || {};
+  const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || p.name || '';
+  return String(t || '')
+    .replace(/\{\{?\s*title\s*\}?\}/gi, r.title)
+    .replace(/\{\{?\s*company\s*\}?\}/gi, r.company || 'your company')
+    .replace(/\{\{?\s*name\s*\}?\}/gi, name);
+};
+
+function mailSay(msg, kind) {
+  $('mailMsg').className = 'mail-msg' + (kind ? ' ' + kind : '');
+  $('mailMsg').textContent = msg;
+}
+
+async function openMail(r) {
+  mailing = r;
+  const dlg = $('mailDialog');
+  $('mailJob').textContent = r.title + (r.company ? ' · ' + r.company : '');
+  mailSay('');
+  $('mailSend').disabled = true;
+  $('mailFields').classList.add('hidden');
+  $('mailSetup').classList.add('hidden');
+  if (!dlg.open) dlg.showModal();
+
+  try {
+    if (mailbox === undefined || !mailbox || !mailbox.connected) mailbox = await loadMailbox();
+  } catch (e) {
+    mailSay('Could not read your email settings: ' + e.message, 'err');
+    return;
+  }
+  if (!mailbox || !mailbox.available || !mailbox.connected) {
+    $('mailSetupText').textContent = !mailbox
+      ? 'Sign in to your jobDo account in the extension first: the mail goes out through your account.'
+      : !mailbox.available
+        ? 'This jobDo server is not set up to send mail from your Gmail yet (MAIL_SECRET_KEY).'
+        : 'Connect your Gmail first: in Settings → 8. Email the hiring team, add your Gmail address and an app password. ' +
+          'The mail then goes from your own address, so replies reach you.';
+    $('mailOpenSettings').classList.toggle('hidden', !mailbox || !mailbox.available);
+    $('mailSetup').classList.remove('hidden');
+    return;
+  }
+
+  $('mailFrom').textContent = mailbox.address;
+  $('mailTo').replaceChildren(...r.contactEmails.map((a) => {
+    const o = document.createElement('option');
+    o.value = a; o.textContent = a;
+    return o;
+  }));
+  if (r.emailedTo && r.contactEmails.includes(r.emailedTo)) {
+    // Mailing again: offer the address not yet written to first.
+    $('mailTo').value = r.contactEmails.find((a) => a !== r.emailedTo) || r.emailedTo;
+  }
+  $('mailSubject').value = fillTemplate(mailbox.subject, r);
+  $('mailBody').value = fillTemplate(mailbox.body, r);
+  const file = currentResume && currentResume.filename;
+  $('mailAttach').checked = !!file;
+  $('mailAttach').disabled = !file;
+  $('mailAttachLabel').textContent = file ? 'Attach my resume (' + file + ')' : 'No resume on your account to attach';
+  $('mailAgain').classList.toggle('hidden', !r.emailedAt);
+  $('mailAgain').textContent = r.emailedAt
+    ? 'You already mailed ' + r.emailedTo + ' about this job on ' + new Date(r.emailedAt).toLocaleDateString() + '. Send only if it adds something.'
+    : '';
+  $('mailFields').classList.remove('hidden');
+  $('mailSend').disabled = false;
+  $('mailSubject').focus();
+}
+
+$('mailSend').onclick = async () => {
+  const r = mailing;
+  if (!r) return;
+  const subject = $('mailSubject').value.trim();
+  const body = $('mailBody').value.trim();
+  if (!subject || !body) { mailSay('Write a subject and a message first.', 'err'); return; }
+  $('mailSend').disabled = true;
+  mailSay('Sending from ' + mailbox.address + '…');
+  try {
+    const out = await sendHiringMail(r, {
+      to: $('mailTo').value, subject, body,
+      attachResume: $('mailAttach').checked, again: !!r.emailedAt
+    });
+    r.emailedAt = out.emailedAt || Date.now();
+    r.emailedTo = out.to;
+    mailSay('Sent to ' + out.to + (out.attached && out.attached.length ? ', with ' + out.attached[0] : '') + '.', 'ok');
+    renderTable();
+    setTimeout(() => { if (mailing === r) $('mailDialog').close(); }, 1400);
+  } catch (e) {
+    mailSay(e.message, 'err');
+    // A saved app password Gmail no longer takes: send them to Settings.
+    if (/Settings/.test(e.message)) mailbox = undefined;
+    $('mailSend').disabled = false;
+  }
+};
+
+$('mailCancel').onclick = () => $('mailDialog').close();
+$('mailOpenSettings').onclick = () => { $('mailDialog').close(); openSettings('mail'); };
+$('mailDialog').addEventListener('close', () => { mailing = null; });
 
 // ---------------------------------------------------------------- live strip
 
@@ -447,7 +583,7 @@ for (const th of document.querySelectorAll('th.sortable')) {
   };
 }
 
-$('openOptions').onclick = openSettings;
+$('openOptions').onclick = () => openSettings();
 $('openJobs').onclick = openJobList;
 $('signout').onclick = signOut;
 
@@ -593,11 +729,12 @@ $('thresholdSave').onclick = async () => {
 
 $('exportCsv').onclick = () => {
   const rows = tableRows();
-  const head = ['jobId', 'date', 'title', 'company', 'location', 'site', 'route', 'ats', 'score', 'rating', 'status', 'reason', 'url'];
+  const head = ['jobId', 'date', 'title', 'company', 'location', 'site', 'route', 'ats', 'score', 'rating', 'status', 'reason', 'url', 'email', 'emailed'];
   const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const body = rows.map((r) => [
     r.jobId, new Date(r.at).toISOString(), r.title, r.company, r.location,
-    r.site, r.source, r.ats, r.score, r.feedback, r.status, r.reason, r.url
+    r.site, r.source, r.ats, r.score, r.feedback, r.status, r.reason, r.url,
+    r.contactEmails.join(' '), r.emailedAt ? new Date(r.emailedAt).toISOString() : ''
   ].map(esc).join(','));
   const blob = new Blob([[head.join(','), ...body].join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');

@@ -43,6 +43,7 @@ Confirm it with `npm run check:supabase`.
 | `MAIL_FROM` | `jobDo <SMTP_USER>` | The From line, e.g. `jobDo <you@gmail.com>`. Gmail rewrites any other address to `SMTP_USER` |
 | `WEB_URL` | `https://job-do.web.app` | Where links in emails point |
 | `CRON_SECRET` | empty | At least 24 characters. Supabase `pg_cron` sends it to `/api/cron/companies` to start the scheduled favourite-companies check. Empty turns the schedule off; "Check now" still works |
+| `MAIL_SECRET_KEY` | empty | 64 hex characters (`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`). Encrypts each account's Gmail app password (AES-256-GCM) before it is stored, for mailing the hiring team from your own Gmail. Empty switches that off. **Keep it safe and never change it**: a new key cannot open passwords saved under the old one, so everyone would have to enter theirs again |
 | `SUPABASE_SERVICE_ROLE_KEY` | empty | Needed with `CRON_SECRET`, and used by nothing else: the scheduled check reads every account that is due. See the security notes below |
 
 ### Email
@@ -111,6 +112,10 @@ There is no database to provision: Supabase is the database.
 | POST | `/api/companies/lookup` | `{ query }`: a company name or a careers page address. Returns `{ found: [{ ats, slug, name, jobs }], hint }`. 40 per 15 minutes |
 | POST | `/api/companies/check` | "Check now": reads the boards, ranks postings not seen before against your resume, and adds the matches to your job list. Returns `{ result, added, watch }`. 6 per 15 minutes |
 | POST | `/api/cron/companies` | For Supabase `pg_cron` only, with `Authorization: Bearer <CRON_SECRET>`. Checks up to 25 accounts that are due and emails each one its new matches |
+| GET | `/api/mailbox` | Your Gmail for mailing the hiring team: `{ available, connected, address, verifiedAt, subject, body, defaults }`. Never the app password |
+| PUT | `/api/mailbox` | `{ address, appPassword }` to connect or change the account (checked with Gmail first, then stored encrypted; 8 tries per 15 minutes), and/or `{ subject, body }` for your template (`{{title}}`, `{{company}}`, `{{name}}`) |
+| DELETE | `/api/mailbox` | Forgets the address and app password |
+| POST | `/api/applications/email` | `{ jobId, site, to, subject, body, attachResume = true, again = false }`. Mails the hiring team from your own Gmail, with your current resume attached. Only for jobs you applied to, only to an address that job's posting gave (`contactEmails` on the record), once per job unless `again`. 10 per 15 minutes |
 | POST | `/api/runs/report` | `{ startedAt, endedAt, ending, tz }` from the extension when a run ends. Emails the account's own address a report built from the account's own records in that window. `ending` is one of `done`, `maxPerRun`, `maxPerDay`, `stopped`, `errors`. `{ sent: false }` when nothing was recorded or `notify.emailReport` is off; 503 without SMTP; 10 per 15 minutes |
 | GET | `/api/config` | Every setting, as `{ config: { sites, search, match, rank, schedule, safety, portal, answers, resume, notify }, unknownQuestions }`. `match.minScore` is the ranking threshold |
 | PATCH | `/api/config` | `{ config: { section: { field: value } } }`. Replaces only the named fields of the named sections, so the extension can flip one switch without overwriting the rest |

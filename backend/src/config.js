@@ -57,6 +57,11 @@ export const config = {
   smtpUser: unquote(process.env.SMTP_USER),
   smtpPass: unquote(process.env.SMTP_PASS).replace(/\s+/g, ''),   // app passwords are shown with spaces
   mailFrom: unquote(process.env.MAIL_FROM),                        // 'jobDo <you@gmail.com>'; defaults to SMTP_USER
+  // Seals each account's Gmail app password before it is stored (vault.js):
+  // 32 random bytes, as 64 hex characters or base64. Without it, mailing the
+  // hiring team from your own Gmail is switched off. Set below.
+  mailSecretKey: null,
+  mailSecretProblem: '',
   // Where links in emails point.
   webUrl: unquote(process.env.WEB_URL || 'https://job-do.web.app').replace(/\/+$/, ''),
 
@@ -102,10 +107,33 @@ export function validateConfig() {
   if (smtp && smtp < 3) {
     problems.push('Email needs all three of SMTP_HOST, SMTP_USER and SMTP_PASS (or none of them).');
   }
+  if (config.mailSecretProblem) problems.push(config.mailSecretProblem);
   if (!['lax', 'none', 'strict'].includes(config.cookieSameSite)) {
     problems.push('COOKIE_SAMESITE must be lax, none or strict.');
   }
   return problems;
+}
+
+// A wrong key would seal passwords nobody can open later, so a malformed one
+// is a startup error, not a silent fallback. The in-memory test backend gets
+// a fixed key of its own when none is set.
+function mailKey(raw) {
+  const v = unquote(raw);
+  if (!v) {
+    return config.providers === 'memory'
+      ? { key: Buffer.alloc(32, 7) }
+      : { key: null };
+  }
+  const key = /^[0-9a-f]{64}$/i.test(v) ? Buffer.from(v, 'hex') : Buffer.from(v, 'base64');
+  if (key.length !== 32) {
+    return { key: null, problem: 'MAIL_SECRET_KEY must be 32 bytes: 64 hex characters (node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))").' };
+  }
+  return { key };
+}
+{
+  const { key, problem } = mailKey(process.env.MAIL_SECRET_KEY);
+  config.mailSecretKey = key;
+  config.mailSecretProblem = problem || '';
 }
 
 // Redis is an optimisation, so a bad Redis setting must never stop the server

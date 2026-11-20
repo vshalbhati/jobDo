@@ -9,6 +9,7 @@ import {
 } from '../shared/sync.js';
 import { isDue, scheduledAt } from '../shared/schedule.js';
 import { describeSkips } from '../shared/skips.js';
+import { emailsIn } from '../shared/contact.js';
 
 const CONTENT_FILES = [
   'src/content/selectors.js',
@@ -681,7 +682,9 @@ async function recordOutcome(job, outcome, label) {
     source: outcome.source || 'easy',
     ats: outcome.source === 'portal' ? (run.lastAts || '') : '',
     site: job.site || run.siteId,
-    at: Date.now()
+    at: Date.now(),
+    // Addresses the posting gave for applying: the dashboard's "Mail them".
+    contactEmails: emailsIn(outcome.description || '')
   };
   await recordApplication(historyKey(job, run.siteId), entry);
   // The posting goes to the account only: this browser's history is rewritten
@@ -822,7 +825,9 @@ async function openJob(job, tabId, site, reopen) {
     if (reopen && job.pageUrl) await navigate(tabId, withCurrentJob(job.pageUrl, job.jobId));
     opened = await send(tabId, { type: 'OPEN_JOB', job }, 40000);
   }
-  if (!opened || !opened.ok) return { ok: false, reason: (opened && opened.reason) || 'could not open job' };
+  if (!opened || !opened.ok) {
+    return { ok: false, reason: (opened && opened.reason) || 'could not open job' + (opened && opened.error ? ' (' + opened.error + ')' : '') };
+  }
   return opened;
 }
 
